@@ -1,0 +1,307 @@
+:root {
+  --bg: #14161c;
+  --panel: #1b1e26;
+  --panel-2: #21252f;
+  --line: #2b303c;
+  --text: #e9ebf0;
+  --muted: #8b93a3;
+  --accent: #e2a33b;   /* amber — primary signal */
+  --accent-dim: #e2a33b33;
+  --teal: #4fb0a5;     /* secondary data series */
+  --danger: #e1614c;
+  --green: #5fb87e;
+  --radius: 10px;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  padding: 0 0 4rem;
+}
+
+h1, h2 { font-family: var(--font-display); margin: 0; letter-spacing: -0.01em; }
+
+a { color: var(--accent); }
+
+/* ---------- Header ---------- */
+.mission-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 2rem 2rem 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.mission-id h1 { font-size: 1.6rem; }
+
+.mission-clock { display: flex; gap: 1.75rem; }
+.clock-block { text-align: right; }
+.clock-num {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.clock-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- Runway progress bar ---------- */
+.runway {
+  max-width: 1200px;
+  margin: 0.5rem auto 1.5rem;
+  padding: 0 2rem;
+  position: relative;
+}
+.runway::before {
+  content: "";
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.runway-fill {
+  position: absolute;
+  top: 1px; left: 2rem;
+  height: 8px;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), var(--accent));
+  transition: width 0.4s ease;
+}
+.runway-goal-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+
+/* ---------- Layout ---------- */
+.deck {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.4rem;
+  grid-column: span 2;
+}
+.panel h2 {
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+.panel h2 .hint {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.chart-panel.half { grid-column: span 1; }
+
+/* Fixed-height wrapper so Chart.js (responsive + maintainAspectRatio:false)
+   has a stable box to size against instead of an auto-height parent —
+   without this, the chart and its container grow each other forever. */
+.chart-canvas {
+  position: relative;
+  height: 260px;
+  width: 100%;
+}
+.chart-canvas canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ---------- Ticket form ---------- */
+.ticket-form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+}
+.ticket-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--muted);
+  gap: 0.35rem;
+}
+.ticket-form input, .ticket-form select, .ticket-form textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+}
+.ticket-form input:focus, .ticket-form select:focus, .ticket-form textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.ticket-form .full-width { grid-column: 1 / -1; }
+.ticket-form .checkbox { flex-direction: row; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.ticket-form .checkbox input { width: auto; }
+.ticket-actions { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.25rem; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #1a1206;
+  border: none;
+  font-weight: 600;
+  padding: 0.65rem 1.3rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 0.6rem 1.1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+/* ---------- Heatmap ---------- */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 5px;
+}
+.heatmap .cell {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  position: relative;
+}
+.heatmap .cell[data-future="1"] { opacity: 0.35; }
+.heatmap .cell.l1 { background: #3a3324; }
+.heatmap .cell.l2 { background: #5c4a1e; }
+.heatmap .cell.l3 { background: #94711f; }
+.heatmap .cell.l4 { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.heatmap .cell .day-num {
+  position: absolute;
+  top: 2px; left: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  color: var(--muted);
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.heatmap-legend .swatch { width: 12px; height: 12px; border-radius: 3px; }
+.l0 { background: var(--panel-2); border: 1px solid var(--line); }
+.l1 { background: #3a3324; }
+.l2 { background: #5c4a1e; }
+.l3 { background: #94711f; }
+.l4 { background: var(--accent); }
+
+/* ---------- Log table ---------- */
+.log-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.log-panel-head #search {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  width: 260px;
+}
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 0.82rem; }
+td.title-cell, td.company-cell { font-family: var(--font-body); }
+tr:hover td { background: var(--panel-2); }
+
+.status-pill {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-applied { color: var(--teal); border-color: #4fb0a555; }
+.status-interview { color: var(--accent); border-color: #e2a33b55; }
+.status-offer { color: var(--green); border-color: #5fb87e55; }
+.status-rejected, .status-ghosted { color: var(--danger); border-color: #e1614c55; }
+
+.row-actions button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.4rem;
+}
+.row-actions button:hover { color: var(--text); }
+
+.empty-state { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+
+@media (max-width: 860px) {
+  .deck { grid-template-columns: 1fr; }
+  .panel, .chart-panel.half { grid-column: span 1; }
+  .ticket-form { grid-template-columns: 1fr 1fr; }
+  .mission-clock { gap: 1rem; }
+}
