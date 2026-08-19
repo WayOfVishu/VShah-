@@ -1,0 +1,3 @@
+[submodule "External Repos/Light Panda (Headless Browser)"]
+	path = External Repos/Light Panda (Headless Browser)
+	url = https://github.com/lightpanda-io/browser.git
