@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sprint Log — 60-Day Application Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="mission-header">
+  <div class="mission-id">
+    <span class="eyebrow">SPRINT LOG</span>
+    <h1>60 Days · 360 Applications</h1>
+  </div>
+  <div class="mission-clock" id="missionClock">
+    <div class="clock-block"><span class="clock-num" id="dayNum">–</span><span class="clock-label">day</span></div>
+    <div class="clock-block"><span class="clock-num" id="totalNum">–</span><span class="clock-label">logged</span></div>
+    <div class="clock-block"><span class="clock-num" id="paceNum">–</span><span class="clock-label">apps / day</span></div>
+    <div class="clock-block"><span class="clock-num" id="streakNum">–</span><span class="clock-label">streak</span></div>
+  </div>
+</header>
+
+<div class="runway" id="runway" title="Progress toward 360">
+  <div class="runway-fill" id="runwayFill"></div>
+  <div class="runway-goal-label" id="runwayLabel">0 / 360</div>
+</div>
+
+<main class="deck">
+
+  <!-- Log entry ticket -->
+  <section class="panel ticket" aria-labelledby="ticketHeading">
+    <h2 id="ticketHeading">Log an application</h2>
+    <form id="jobForm" class="ticket-form">
+      <label>Title<input required name="title" placeholder="Software Engineer I" autocomplete="off" /></label>
+      <label>Company<input required name="company" placeholder="Acme Corp" autocomplete="off" /></label>
+      <label>Platform<input required name="platform" list="platformList" placeholder="LinkedIn" autocomplete="off" />
+        <datalist id="platformList">
+          <option value="LinkedIn"></option><option value="Indeed"></option><option value="Company Site"></option>
+          <option value="Referral"></option><option value="Glassdoor"></option><option value="Handshake"></option>
+        </datalist>
+      </label>
+      <label>Applied at<input required name="timestamp" type="datetime-local" /></label>
+      <label>Status
+        <select name="status">
+          <option value="applied" selected>Applied</option>
+          <option value="interview">Interview</option>
+          <option value="offer">Offer</option>
+          <option value="rejected">Rejected</option>
+          <option value="ghosted">No response</option>
+        </select>
+      </label>
+      <label>Location<input name="location" placeholder="Remote / Calgary, AB" autocomplete="off" /></label>
+      <label>Posting URL<input name="url" type="url" placeholder="https://…" autocomplete="off" /></label>
+      <label class="checkbox"><input type="checkbox" name="referral" /> Came through a referral</label>
+      <label class="full-width">Notes<textarea name="notes" rows="2" placeholder="Recruiter name, resume version, anything worth remembering…"></textarea></label>
+      <div class="ticket-actions full-width">
+        <button type="submit" class="btn-primary" id="submitBtn">Log application</button>
+        <button type="button" class="btn-ghost" id="cancelEdit" hidden>Cancel edit</button>
+        <a class="btn-ghost" href="/api/export">Export CSV</a>
+      </div>
+    </form>
+  </section>
+
+  <!-- Heatmap: the signature element -->
+  <section class="panel heatmap-panel" aria-labelledby="heatmapHeading">
+    <h2 id="heatmapHeading">Daily intensity <span class="hint">— goal is 6 a day</span></h2>
+    <div id="heatmap" class="heatmap"></div>
+    <div class="heatmap-legend">
+      <span>0</span>
+      <span class="swatch l0"></span><span class="swatch l1"></span><span class="swatch l2"></span>
+      <span class="swatch l3"></span><span class="swatch l4"></span>
+      <span>6+</span>
+    </div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>Applications per day</h2>
+    <div class="chart-canvas"><canvas id="dailyChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>Cumulative progress</h2>
+    <div class="chart-canvas"><canvas id="cumulativeChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>7-day rolling average</h2>
+    <div class="chart-canvas"><canvas id="rollingChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By platform</h2>
+    <div class="chart-canvas"><canvas id="platformChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By status</h2>
+    <div class="chart-canvas"><canvas id="statusChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By day of week</h2>
+    <div class="chart-canvas"><canvas id="dowChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>Top companies</h2>
+    <div class="chart-canvas"><canvas id="companyChart"></canvas></div>
+  </section>
+
+  <!-- Log table -->
+  <section class="panel log-panel" aria-labelledby="logHeading">
+    <div class="log-panel-head">
+      <h2 id="logHeading">Full log</h2>
+      <input id="search" type="search" placeholder="Filter by title, company, platform…" />
+    </div>
+    <div class="table-wrap">
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>Applied</th><th>Title</th><th>Company</th><th>Platform</th>
+            <th>Status</th><th>Ref?</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+    <p class="empty-state" id="emptyState" hidden>No applications logged yet. Fill out the ticket above to start the sprint.</p>
+  </section>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
