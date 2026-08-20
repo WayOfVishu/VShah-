@@ -1,7 +1,3 @@
-const GOAL_TOTAL = 360;
-const GOAL_PER_DAY = 6;
-const SPRINT_DAYS = 60;
-
 const els = {
   form: document.getElementById("jobForm"),
   submitBtn: document.getElementById("submitBtn"),
@@ -14,8 +10,7 @@ const els = {
   totalNum: document.getElementById("totalNum"),
   paceNum: document.getElementById("paceNum"),
   streakNum: document.getElementById("streakNum"),
-  runwayFill: document.getElementById("runwayFill"),
-  runwayLabel: document.getElementById("runwayLabel"),
+  sankeyEmpty: document.getElementById("sankeyEmpty"),
 };
 
 let jobs = [];
@@ -29,7 +24,16 @@ const CHART_COLORS = {
   teal: "#4fb0a5",
   green: "#5fb87e",
   danger: "#e1614c",
+  grey: "#5b6272",
   palette: ["#e2a33b", "#4fb0a5", "#5fb87e", "#e1614c", "#8b7ee8", "#e88fc2", "#6ea8e0", "#c2b280"],
+};
+
+const OUTCOME_LABELS = {
+  applied: "Awaiting response",
+  interview: "Interview",
+  offer: "Offer",
+  rejected: "Rejected",
+  ghosted: "No response",
 };
 
 Chart.defaults.color = CHART_COLORS.text;
@@ -73,6 +77,7 @@ function resetForm() {
   editingId = null;
   els.submitBtn.textContent = "Log application";
   els.cancelEdit.hidden = true;
+  els.form.timestamp.value = toLocalInputValue(new Date().toISOString());
 }
 
 function startEdit(job) {
@@ -105,25 +110,31 @@ function toLocalInputValue(iso) {
 
 function dateKey(iso) {
   const d = new Date(iso);
+  return dateKeyFromDate(d);
+}
+function dateKeyFromDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+function startOfDay(d) { const c = new Date(d); c.setHours(0, 0, 0, 0); return c; }
+function addDays(d, n) { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 function renderAll() {
   renderClock();
-  renderRunway();
   renderHeatmap();
   renderTable();
   renderCharts();
+  renderSankey();
 }
 
 function renderClock() {
   els.totalNum.textContent = jobs.length;
 
   if (jobs.length === 0) {
-    els.dayNum.textContent = "1 / 60";
+    els.dayNum.textContent = "0";
     els.paceNum.textContent = "0.0";
     els.streakNum.textContent = "0";
     return;
@@ -131,9 +142,9 @@ function renderClock() {
 
   const firstDay = startOfDay(new Date(jobs[0].timestamp));
   const today = startOfDay(new Date());
-  const dayNum = Math.min(SPRINT_DAYS, Math.floor((today - firstDay) / 86400000) + 1);
-  els.dayNum.textContent = `${dayNum} / ${SPRINT_DAYS}`;
-  els.paceNum.textContent = (jobs.length / dayNum).toFixed(1);
+  const daysActive = Math.floor((today - firstDay) / 86400000) + 1;
+  els.dayNum.textContent = daysActive;
+  els.paceNum.textContent = (jobs.length / daysActive).toFixed(1);
   els.streakNum.textContent = computeStreak();
 }
 
@@ -141,45 +152,33 @@ function computeStreak() {
   const days = new Set(jobs.map((j) => dateKey(j.timestamp)));
   let streak = 0;
   let cursor = startOfDay(new Date());
-  // if nothing logged today yet, still count back from yesterday
-  if (!days.has(fmt(cursor))) cursor = addDays(cursor, -1);
-  while (days.has(fmt(cursor))) {
+  if (!days.has(dateKeyFromDate(cursor))) cursor = addDays(cursor, -1);
+  while (days.has(dateKeyFromDate(cursor))) {
     streak++;
     cursor = addDays(cursor, -1);
   }
   return streak;
-
-  function fmt(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 }
 
-function startOfDay(d) { const c = new Date(d); c.setHours(0, 0, 0, 0); return c; }
-function addDays(d, n) { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
-
-function renderRunway() {
-  const pct = Math.min(100, (jobs.length / GOAL_TOTAL) * 100);
-  els.runwayFill.style.width = `calc(${pct}% - ${pct > 0 ? "0px" : "0px"})`;
-  els.runwayFill.style.width = `${pct}%`;
-  els.runwayLabel.textContent = `${jobs.length} / ${GOAL_TOTAL} applications`;
-}
-
+// GitHub-contribution-style heatmap: as many weeks as your history spans,
+// from the Sunday on/before your first logged application through today.
+// No fixed day cap — it just keeps growing with you.
 function renderHeatmap() {
-  const counts = {};
-  jobs.forEach((j) => { const k = dateKey(j.timestamp); counts[k] = (counts[k] || 0) + 1; });
+  const counts = groupCount(jobs, (j) => dateKey(j.timestamp));
+  const today = startOfDay(new Date());
+  const firstDate = jobs.length ? startOfDay(new Date(jobs[0].timestamp)) : today;
 
-  const start = jobs.length ? startOfDay(new Date(jobs[0].timestamp)) : startOfDay(new Date());
+  const start = addDays(firstDate, -firstDate.getDay());
+  const end = addDays(today, 6 - today.getDay());
+
   els.heatmap.innerHTML = "";
-  for (let i = 0; i < SPRINT_DAYS; i++) {
-    const d = addDays(start, i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+    const key = dateKeyFromDate(d);
     const count = counts[key] || 0;
     const cell = document.createElement("div");
     cell.className = "cell " + levelClass(count);
     cell.title = `${key}: ${count} application${count === 1 ? "" : "s"}`;
-    if (d > startOfDay(new Date())) cell.dataset.future = "1";
-    const label = document.createElement("span");
-    label.className = "day-num";
-    label.textContent = i + 1;
-    cell.appendChild(label);
+    if (d > today) cell.dataset.future = "1";
     els.heatmap.appendChild(cell);
   }
 
@@ -187,7 +186,7 @@ function renderHeatmap() {
     if (c <= 0) return "l0";
     if (c === 1) return "l1";
     if (c <= 3) return "l2";
-    if (c < GOAL_PER_DAY) return "l3";
+    if (c <= 5) return "l3";
     return "l4";
   }
 }
@@ -223,6 +222,71 @@ function escapeHtml(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Sankey: Platform -> Outcome, one flow per application
+// ---------------------------------------------------------------------------
+function nodeColor(label) {
+  const fixed = {
+    Rejected: CHART_COLORS.danger,
+    "No response": CHART_COLORS.grey,
+    Interview: CHART_COLORS.amber,
+    Offer: CHART_COLORS.green,
+    "Awaiting response": CHART_COLORS.teal,
+  };
+  if (fixed[label]) return fixed[label];
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  return CHART_COLORS.palette[hash % CHART_COLORS.palette.length];
+}
+
+function buildSankeyData() {
+  const edgeCounts = {};
+  jobs.forEach((j) => {
+    const platform = j.platform || "Unspecified";
+    const outcome = OUTCOME_LABELS[j.status] || j.status;
+    const key = `${platform}|||${outcome}`;
+    edgeCounts[key] = (edgeCounts[key] || 0) + 1;
+  });
+  return Object.entries(edgeCounts).map(([key, flow]) => {
+    const [from, to] = key.split("|||");
+    return { from, to, flow };
+  });
+}
+
+function renderSankey() {
+  const canvas = document.getElementById("sankeyChart");
+  if (charts.sankeyChart) { charts.sankeyChart.destroy(); charts.sankeyChart = null; }
+
+  if (jobs.length === 0) {
+    els.sankeyEmpty.hidden = false;
+    canvas.closest(".chart-canvas").style.display = "none";
+    return;
+  }
+  els.sankeyEmpty.hidden = true;
+  canvas.closest(".chart-canvas").style.display = "";
+
+  const data = buildSankeyData();
+  charts.sankeyChart = new Chart(canvas, {
+    type: "sankey",
+    data: {
+      datasets: [{
+        label: "Applications",
+        data,
+        colorFrom: (c) => nodeColor(c.dataset.data[c.dataIndex].from),
+        colorTo: (c) => nodeColor(c.dataset.data[c.dataIndex].to),
+        colorMode: "gradient",
+        color: CHART_COLORS.text,
+        font: { family: "IBM Plex Mono", size: 11, color: CHART_COLORS.text },
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Charts
 // ---------------------------------------------------------------------------
 function renderCharts() {
@@ -235,15 +299,12 @@ function renderCharts() {
     datasets: [{ label: "Applications", data: dailyCounts, backgroundColor: CHART_COLORS.amber, borderRadius: 3 }],
   }, { scales: baseScales() });
 
-  const cumulative = [];
-  dailyCounts.reduce((acc, c, i) => (cumulative[i] = acc + c), 0);
   let running = 0;
   const cumulativeData = dailyCounts.map((c) => (running += c));
   upsertChart("cumulativeChart", "line", {
     labels: days.map(shortDate),
     datasets: [
       { label: "Cumulative applications", data: cumulativeData, borderColor: CHART_COLORS.teal, backgroundColor: CHART_COLORS.teal + "22", fill: true, tension: 0.35, pointRadius: 2 },
-      { label: "Goal pace", data: days.map((_, i) => Math.round((GOAL_TOTAL / SPRINT_DAYS) * (i + 1))), borderColor: CHART_COLORS.text, borderDash: [4, 4], pointRadius: 0 },
     ],
   }, { scales: baseScales() });
 
@@ -299,7 +360,7 @@ function sortedDayRange(byDay) {
   const end = new Date(keys[keys.length - 1]);
   const out = [];
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    out.push(dateKeyFromDate(d));
   }
   return out;
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Sprint Log — 60-Day Application Tracker</title>
+<title>Job Search Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -12,21 +12,16 @@
 
 <header class="mission-header">
   <div class="mission-id">
-    <span class="eyebrow">SPRINT LOG</span>
-    <h1>60 Days · 360 Applications</h1>
+    <span class="eyebrow">APPLICATION LOG</span>
+    <h1>Job Search Dashboard</h1>
   </div>
   <div class="mission-clock" id="missionClock">
-    <div class="clock-block"><span class="clock-num" id="dayNum">–</span><span class="clock-label">day</span></div>
     <div class="clock-block"><span class="clock-num" id="totalNum">–</span><span class="clock-label">logged</span></div>
+    <div class="clock-block"><span class="clock-num" id="dayNum">–</span><span class="clock-label">days active</span></div>
     <div class="clock-block"><span class="clock-num" id="paceNum">–</span><span class="clock-label">apps / day</span></div>
     <div class="clock-block"><span class="clock-num" id="streakNum">–</span><span class="clock-label">streak</span></div>
   </div>
 </header>
-
-<div class="runway" id="runway" title="Progress toward 360">
-  <div class="runway-fill" id="runwayFill"></div>
-  <div class="runway-goal-label" id="runwayLabel">0 / 360</div>
-</div>
 
 <main class="deck">
 
@@ -64,16 +59,25 @@
     </form>
   </section>
 
-  <!-- Heatmap: the signature element -->
+  <!-- Heatmap -->
   <section class="panel heatmap-panel" aria-labelledby="heatmapHeading">
-    <h2 id="heatmapHeading">Daily intensity <span class="hint">— goal is 6 a day</span></h2>
+    <h2 id="heatmapHeading">Daily intensity <span class="hint">— darker means more applications that day</span></h2>
     <div id="heatmap" class="heatmap"></div>
     <div class="heatmap-legend">
-      <span>0</span>
+      <span>Less</span>
       <span class="swatch l0"></span><span class="swatch l1"></span><span class="swatch l2"></span>
       <span class="swatch l3"></span><span class="swatch l4"></span>
-      <span>6+</span>
+      <span>More</span>
     </div>
+  </section>
+
+  <!-- Sankey pipeline -->
+  <section class="panel chart-panel sankey-panel" aria-labelledby="sankeyHeading">
+    <h2 id="sankeyHeading">Application pipeline <span class="hint">— platform → outcome</span></h2>
+    <div class="chart-canvas tall">
+      <canvas id="sankeyChart"></canvas>
+    </div>
+    <p class="empty-state" id="sankeyEmpty" hidden>Log a few applications to see how they flow from platform to outcome.</p>
   </section>
 
   <section class="panel chart-panel">
@@ -128,12 +132,13 @@
         <tbody id="logBody"></tbody>
       </table>
     </div>
-    <p class="empty-state" id="emptyState" hidden>No applications logged yet. Fill out the ticket above to start the sprint.</p>
+    <p class="empty-state" id="emptyState" hidden>No applications logged yet. Fill out the ticket above to get started.</p>
   </section>
 
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
