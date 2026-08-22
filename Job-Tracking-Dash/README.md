@@ -1,9 +1,9 @@
-# Sprint Log — 60-Day Job Application Tracker
+# Job Search Dashboard
 
-A local, single-user dashboard for logging and visualizing a 60-day / 360-application job
-search sprint. Node.js + Express + SQLite backend, plain HTML/JS + Chart.js frontend —
-no build step, no framework, no account/cloud dependency. Your data lives in one file
-(`jobs.db`) on your own machine.
+A local, single-user, one-stop dashboard for logging and visualizing job applications —
+open-ended, not tied to any fixed day count. Node.js + Express + SQLite backend, plain
+HTML/JS + Chart.js frontend — no build step, no framework, no account/cloud dependency.
+Your data lives in one file (`jobs.db`) on your own machine.
 
 ## What it tracks per application
 
@@ -13,12 +13,17 @@ no build step, no framework, no account/cloud dependency. Your data lives in one
 
 ## What the dashboard shows
 
-- Sprint clock: current day (of 60), total logged, apps/day pace, current daily streak
-- Progress bar toward the 360-application goal
-- **Daily intensity heatmap** — a 60-cell grid (like a habit tracker) shaded by how many
-  applications you logged that day, so a 6-app day visibly "lights up"
+- Stat strip: total logged, days active (since your first entry), apps/day pace, current
+  daily streak — all uncapped, they just keep accumulating
+- **Daily intensity heatmap** — a GitHub-contribution-style grid shaded by how many
+  applications you logged each day. It grows with your history instead of resetting at
+  a fixed day count, and scrolls horizontally once it gets wide
+- **Application pipeline (Sankey diagram)** — every application flows from the platform
+  you applied on into its current outcome (interview / offer / rejected / no response /
+  still awaiting response), so you can see at a glance which platforms are actually
+  converting
 - Applications per day (bar)
-- Cumulative applications vs. the goal pace line (the "slinky" progress curve)
+- Cumulative applications over time (line)
 - 7-day rolling average (smooths out daily noise)
 - Breakdown by platform, by status, by day of week, and top 10 companies applied to
 - Full searchable/editable/deletable log table
@@ -93,8 +98,6 @@ job-tracker/
 
 ## Customizing
 
-- Change the goal (default 360 applications / 60 days / 6 per day) by editing the
-  constants at the top of `public/app.js` (`GOAL_TOTAL`, `GOAL_PER_DAY`, `SPRINT_DAYS`).
 - Add more fields (e.g. `salary`, `contact_name`) by adding a column in the `CREATE TABLE`
   statement in `server.js`, adding it to the `COLUMNS` array, and adding a matching
   `<label>` in `public/index.html`.
@@ -102,9 +105,11 @@ job-tracker/
   computer's local IP (e.g. `192.168.1.23`), and visit `http://192.168.1.23:3001` from
   your phone's browser.
 
-## Notes on the two "reference" chart types
+## Third-party libraries
 
-- **Cumulative chart**: your running total (teal) plotted against a dashed straight-line
-  pace to 360 over 60 days, so you can see at a glance whether you're ahead or behind.
-- **Heatmap**: the closest equivalent to a "slinky"-style progress spiral that's still
-  easy to read at a glance — each of the 60 sprint days as one cell, intensity-coded.
+Both are loaded from jsDelivr in `public/index.html` — no npm install needed for them,
+they're plain `<script>` tags:
+
+- [Chart.js](https://www.chartjs.org/) — all the bar/line/doughnut charts
+- [chartjs-chart-sankey](https://github.com/kurkle/chartjs-chart-sankey) — the pipeline
+  diagram. It registers a `sankey` chart type on top of Chart.js automatically.
