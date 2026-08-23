@@ -112,3 +112,27 @@ app.get("/api/export", (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n  Job Application Tracker running at http://localhost:${PORT}\n`);
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown — flush WAL on Ctrl+C
+// ---------------------------------------------------------------------------
+function shutdown(signal) {
+  console.log(`\nReceived ${signal}. Flushing WAL and shutting down...`);
+
+  try {
+    // Force checkpoint: merge WAL into main DB
+    db.pragma("wal_checkpoint(FULL)");
+
+    // Close database connection cleanly
+    db.close();
+
+    console.log("Database safely closed.");
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.on("SIGINT", shutdown);   // Ctrl+C
+process.on("SIGTERM", shutdown);  // e.g. Docker stop
