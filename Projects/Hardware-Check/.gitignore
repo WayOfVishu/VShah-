@@ -1,0 +1,33 @@
+# --- secrets ---
+.env
+
+# --- C++ build output ---
+build/
+cpp/build/
+*.o
+*.obj
+*.out
+*.exe
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# --- reports / cache (local run output, not source) ---
+data/reports/*
+data/cache/*
+!data/reports/.gitkeep
+!data/cache/.gitkeep
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- OS / editor ---
+.vscode/
+.idea/
+.DS_Store
