@@ -1,0 +1,12 @@
+# --- core (v1) ---
+python-dotenv>=1.0
+google-genai>=0.5
+pytest>=8.0
+
+# Nothing else. Networking probes (ping/DNS/port-scan) deliberately use
+# only the standard library (socket, subprocess, time) — see
+# docs/project-charter.md Section 7: avoid scapy/raw sockets, which pull
+# you toward privilege requirements this project scoped out.
+
+# --- optional / later phase (Phase 7 GUI, only if you get there) ---
+# PyQt6>=6.6      # or PySide6 — decide when you actually reach Phase 7
