@@ -1,0 +1,26 @@
+[
+{
+  "directory": "C:/VShah-/build",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/VShah-/Projects/Hardware-Check/cpp/include -IC:/VShah-/build/_deps/json-src/include -g -std=c++20 -Wall -Wextra -o CMakeFiles\\sysdiag_core.dir\\src\\system_info.cpp.obj -c C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\system_info.cpp",
+  "file": "C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\system_info.cpp",
+  "output": "CMakeFiles\\sysdiag_core.dir\\src\\system_info.cpp.obj"
+},
+{
+  "directory": "C:/VShah-/build",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/VShah-/Projects/Hardware-Check/cpp/include -IC:/VShah-/build/_deps/json-src/include -g -std=c++20 -Wall -Wextra -o CMakeFiles\\sysdiag_core.dir\\src\\memory_sandbox.cpp.obj -c C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\memory_sandbox.cpp",
+  "file": "C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\memory_sandbox.cpp",
+  "output": "CMakeFiles\\sysdiag_core.dir\\src\\memory_sandbox.cpp.obj"
+},
+{
+  "directory": "C:/VShah-/build",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/VShah-/Projects/Hardware-Check/cpp/include -IC:/VShah-/build/_deps/json-src/include -g -std=c++20 -Wall -Wextra -o CMakeFiles\\sysdiag_core.dir\\src\\telemetry_json.cpp.obj -c C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\telemetry_json.cpp",
+  "file": "C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\telemetry_json.cpp",
+  "output": "CMakeFiles\\sysdiag_core.dir\\src\\telemetry_json.cpp.obj"
+},
+{
+  "directory": "C:/VShah-/build",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/VShah-/Projects/Hardware-Check/cpp/include -IC:/VShah-/build/_deps/json-src/include -g -std=c++20 -Wall -Wextra -o CMakeFiles\\sysdiag_engine.dir\\src\\main.cpp.obj -c C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\main.cpp",
+  "file": "C:\\VShah-\\Projects\\Hardware-Check\\cpp\\src\\main.cpp",
+  "output": "CMakeFiles\\sysdiag_engine.dir\\src\\main.cpp.obj"
+}
+]
