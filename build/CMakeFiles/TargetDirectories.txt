@@ -1,0 +1,6 @@
+C:/VShah-/build/CMakeFiles/sysdiag_core.dir
+C:/VShah-/build/CMakeFiles/sysdiag_engine.dir
+C:/VShah-/build/CMakeFiles/edit_cache.dir
+C:/VShah-/build/CMakeFiles/rebuild_cache.dir
+C:/VShah-/build/_deps/json-build/CMakeFiles/edit_cache.dir
+C:/VShah-/build/_deps/json-build/CMakeFiles/rebuild_cache.dir
