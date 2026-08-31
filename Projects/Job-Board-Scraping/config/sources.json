@@ -1,0 +1,83 @@
+{
+  "_comment": "Bootstrapped from jobs.db (PRD req. 8). Edit freely — this only sets the starting point.",
+  "tier1Watchlist": [
+    {
+      "name": "StackAdapt",
+      "platform": "greenhouse",
+      "slug": "stackadapt",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Canonical",
+      "platform": "greenhouse",
+      "slug": "canonical",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Xsolla",
+      "platform": "lever",
+      "slug": "xsolla",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Turing",
+      "platform": "greenhouse",
+      "slug": "turing",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Top Hat",
+      "platform": "ashby",
+      "slug": "top-hat",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "SpaceX",
+      "platform": "greenhouse",
+      "slug": "spacex",
+      "rateLimitMs": 2000
+    }
+  ],
+  "tier2Keywords": [
+    "data engineer",
+    "machine learning engineer",
+    "software developer",
+    "software engineer",
+    "ai champion",
+    "ai data analyst",
+    "ai engineer",
+    "analyst energy economy modeling",
+    "analytics engineer",
+    "applied machine learning scientist",
+    "copilot studio developer",
+    "data analyst",
+    "data analyst sql python",
+    "data engineer 1",
+    "data engineer digital systems"
+  ],
+  "tier2KeywordSource": "derived from jobs.db title history",
+  "tier2Sources": [
+    {
+      "name": "remotive",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "remoteok",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "weworkremotely",
+      "rateLimitMs": 2000
+    }
+  ],
+  "tier2WwrCategories": [
+    "remote-programming-jobs",
+    "remote-devops-sysadmin-jobs"
+  ],
+  "tier2CareerPages": [
+    {
+      "name": "Top Hat",
+      "url": "https://jobs.ashbyhq.com/top-hat/24a445dc-857b-40ac-a8fc-b42c4949b0bc"
+    }
+  ]
+}
