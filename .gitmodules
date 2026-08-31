@@ -4,3 +4,9 @@
 [submodule "External Repos/LLM-Council"]
 	path = External Repos/LLM-Council
 	url = https://github.com/karpathy/llm-council.git
+[submodule "External Repos/PRD"]
+	path = External Repos/PRD
+	url = https://github.com/snarktank/ai-dev-tasks.git
+[submodule "External Repos/Graphify"]
+	path = External Repos/Graphify
+	url = https://github.com/Graphify-Labs/graphify.git
