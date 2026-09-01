@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Job Search Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="mission-header">
+  <div class="mission-id">
+    <span class="eyebrow">APPLICATION LOG</span>
+    <h1>Job Search Dashboard</h1>
+  </div>
+  <div class="mission-clock" id="missionClock">
+    <div class="clock-block"><span class="clock-num" id="totalNum">–</span><span class="clock-label">logged</span></div>
+    <div class="clock-block"><span class="clock-num" id="dayNum">–</span><span class="clock-label">days active</span></div>
+    <div class="clock-block"><span class="clock-num" id="paceNum">–</span><span class="clock-label">apps / day</span></div>
+    <div class="clock-block"><span class="clock-num" id="streakNum">–</span><span class="clock-label">streak</span></div>
+  </div>
+</header>
+
+<nav class="view-tabs" aria-label="Dashboard views">
+  <button class="view-tab is-active" data-view="applied" aria-current="page">Applied log</button>
+  <button class="view-tab" data-view="discovered">
+    Discovered <span class="tab-count" id="discoveredCount" hidden>0</span>
+  </button>
+</nav>
+
+<main class="deck" id="appliedView">
+
+  <!-- Log entry ticket -->
+  <section class="panel ticket" aria-labelledby="ticketHeading">
+    <h2 id="ticketHeading">Log an application</h2>
+    <form id="jobForm" class="ticket-form">
+      <label>Title<input required name="title" placeholder="Software Engineer I" autocomplete="off" /></label>
+      <label>Company<input required name="company" placeholder="Acme Corp" autocomplete="off" /></label>
+      <label>Platform<input required name="platform" list="platformList" placeholder="LinkedIn" autocomplete="off" />
+        <datalist id="platformList">
+          <option value="LinkedIn"></option><option value="Indeed"></option><option value="Company Site"></option>
+          <option value="Referral"></option><option value="Glassdoor"></option><option value="Handshake"></option>
+        </datalist>
+      </label>
+      <label>Applied at<input required name="timestamp" type="datetime-local" /></label>
+      <label>Status
+        <select name="status">
+          <option value="applied" selected>Applied</option>
+          <option value="interview">Interview</option>
+          <option value="offer">Offer</option>
+          <option value="rejected">Rejected</option>
+          <option value="ghosted">No response</option>
+        </select>
+      </label>
+      <label>Location<input name="location" placeholder="Remote / Calgary, AB" autocomplete="off" /></label>
+      <label>Posting URL<input name="url" type="url" placeholder="https://…" autocomplete="off" /></label>
+      <label class="checkbox"><input type="checkbox" name="referral" /> Came through a referral</label>
+      <label class="full-width">Notes<textarea name="notes" rows="2" placeholder="Recruiter name, resume version, anything worth remembering…"></textarea></label>
+      <div class="ticket-actions full-width">
+        <button type="submit" class="btn-primary" id="submitBtn">Log application</button>
+        <button type="button" class="btn-ghost" id="cancelEdit" hidden>Cancel edit</button>
+        <a class="btn-ghost" href="/api/export">Export CSV</a>
+      </div>
+    </form>
+  </section>
+
+  <!-- Heatmap -->
+  <section class="panel heatmap-panel" aria-labelledby="heatmapHeading">
+    <h2 id="heatmapHeading">Daily intensity <span class="hint">— darker means more applications that day</span></h2>
+    <div id="heatmap" class="heatmap"></div>
+    <div class="heatmap-legend">
+      <span>Less</span>
+      <span class="swatch l0"></span><span class="swatch l1"></span><span class="swatch l2"></span>
+      <span class="swatch l3"></span><span class="swatch l4"></span>
+      <span>More</span>
+    </div>
+  </section>
+
+  <!-- Sankey pipeline -->
+  <section class="panel chart-panel sankey-panel" aria-labelledby="sankeyHeading">
+    <h2 id="sankeyHeading">Application pipeline <span class="hint">— platform → outcome</span></h2>
+    <div class="chart-canvas tall">
+      <canvas id="sankeyChart"></canvas>
+    </div>
+    <p class="empty-state" id="sankeyEmpty" hidden>Log a few applications to see how they flow from platform to outcome.</p>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>Applications per day</h2>
+    <div class="chart-canvas"><canvas id="dailyChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>Cumulative progress</h2>
+    <div class="chart-canvas"><canvas id="cumulativeChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel">
+    <h2>7-day rolling average</h2>
+    <div class="chart-canvas"><canvas id="rollingChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By platform</h2>
+    <div class="chart-canvas"><canvas id="platformChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By status</h2>
+    <div class="chart-canvas"><canvas id="statusChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>By day of week</h2>
+    <div class="chart-canvas"><canvas id="dowChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel half">
+    <h2>Top companies</h2>
+    <div class="chart-canvas"><canvas id="companyChart"></canvas></div>
+  </section>
+
+  <!-- Log table -->
+  <section class="panel log-panel" aria-labelledby="logHeading">
+    <div class="log-panel-head">
+      <h2 id="logHeading">Full log</h2>
+      <input id="search" type="search" placeholder="Filter by title, company, platform…" />
+    </div>
+    <div class="table-wrap">
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>Applied</th><th>Title</th><th>Company</th><th>Platform</th>
+            <th>Status</th><th>Ref?</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+    <p class="empty-state" id="emptyState" hidden>No applications logged yet. Fill out the ticket above to get started.</p>
+  </section>
+
+</main>
+
+<!-- ===================== Discovered view (PRD req. 31-32) ===================== -->
+<main class="deck single" id="discoveredView" hidden>
+
+  <!-- req. 31 / §6: persistent source-health banner, not a line in a log -->
+  <div class="source-banner" id="sourceBanner" hidden role="status">
+    <div class="source-banner-body">
+      <strong>Source health</strong>
+      <span id="sourceBannerText"></span>
+    </div>
+    <button type="button" class="btn-ghost" id="dismissBanner">Dismiss</button>
+  </div>
+
+  <section class="panel log-panel" aria-labelledby="discoveredHeading">
+    <div class="log-panel-head">
+      <h2 id="discoveredHeading">Discovered postings</h2>
+      <div class="discovered-controls">
+        <input id="discoveredSearch" type="search" placeholder="Filter by title, company, location…" />
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="active" selected>Needs a decision</option>
+          <option value="all">All (except archived)</option>
+          <option value="new">New</option>
+          <option value="queued">Queued</option>
+          <option value="tailored">Tailored</option>
+          <option value="rejected">Rejected</option>
+          <option value="dismissed">Dismissed</option>
+          <option value="applied">Applied</option>
+          <option value="archived">Archived</option>
+        </select>
+        <select id="sortMode" aria-label="Feed ordering">
+          <option value="mix" selected>Balanced mix</option>
+          <option value="score">Best match first</option>
+          <option value="recent">Newest first</option>
+        </select>
+        <select id="freshness" aria-label="Posted within">
+          <option value="3" selected>Posted ≤ 3 days</option>
+          <option value="7">Posted ≤ 7 days</option>
+          <option value="14">Posted ≤ 14 days</option>
+          <option value="0">Any age</option>
+        </select>
+        <select id="bucketFilter" aria-label="Filter by location">
+          <option value="" selected>All locations</option>
+          <option value="calgary">Calgary</option>
+          <option value="edmonton">Edmonton</option>
+          <option value="remote">Remote</option>
+          <option value="vancouver">Vancouver</option>
+          <option value="seattle">Seattle</option>
+        </select>
+        <label class="control-check">
+          <input type="checkbox" id="hideApplied" checked />
+          Hide already applied
+        </label>
+      </div>
+    </div>
+
+    <p class="hint" id="mixSummary" hidden></p>
+
+    <p class="hint" id="discoveredSummary">Loading…</p>
+
+    <div class="table-wrap">
+      <table id="discoveredTable">
+        <thead>
+          <tr>
+            <th>Posted</th><th>Title</th><th>Company</th><th>Location</th>
+            <th>Sources</th><th>Score</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="discoveredBody"></tbody>
+      </table>
+    </div>
+
+    <div class="load-more-wrap">
+      <button type="button" class="btn-ghost" id="loadMore" hidden>Show more</button>
+    </div>
+    <p class="empty-state" id="discoveredEmpty" hidden>
+      No discovered postings match these filters. Run <code>npm run discover</code> to pull new ones,
+      widen “Posted ≤ 3 days”, or edit <code>config/preferences.json</code>.
+    </p>
+  </section>
+</main>
+
+<!-- ============ Confirm &amp; Generate — the single approval gate (req. 22) ============ -->
+<div class="modal-backdrop" id="tailorModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tailorModalTitle">
+    <div class="modal-head">
+      <h2 id="tailorModalTitle">Confirm &amp; Generate</h2>
+      <button type="button" class="btn-ghost" data-close-modal>Close</button>
+    </div>
+
+    <div class="modal-body" id="tailorModalBody">
+      <p class="hint" id="tailorJobLine"></p>
+
+      <div class="notice notice-warn" id="injectionNotice" hidden>
+        <strong>Injection patterns were neutralized in this posting.</strong>
+        <span id="injectionRules"></span>
+        The redacted text below is what Claude Code will actually receive.
+      </div>
+      <div class="notice" id="htmlNotice" hidden>
+        This board returned the description as HTML; it has been converted to plain text for the prompt.
+      </div>
+
+      <p class="hint">
+        This is the exact input Claude Code will receive. Nothing is written to disk until you confirm.
+        The draft will be written to <code id="outputPathText"></code>.
+      </p>
+      <pre class="prompt-preview" id="promptPreview"></pre>
+    </div>
+
+    <div class="modal-foot">
+      <span class="hint" id="tailorStatus"></span>
+      <button type="button" class="btn-ghost" data-close-modal>Cancel</button>
+      <button type="button" class="btn-primary" id="confirmGenerate">Confirm &amp; Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Draft review: traceability flags + override audit trail (req. 23) ====== -->
+<div class="modal-backdrop" id="draftModal" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="draftModalTitle">
+    <div class="modal-head">
+      <h2 id="draftModalTitle">Tailored draft</h2>
+      <button type="button" class="btn-ghost" data-close-modal>Close</button>
+    </div>
+
+    <div class="modal-body">
+      <p class="hint" id="draftPathLine"></p>
+
+      <div class="notice notice-ok" id="traceOk" hidden>
+        Every substantive line traces back to your base resume.
+      </div>
+      <div class="notice notice-warn" id="traceWarn" hidden>
+        <strong><span id="flagCount"></span> line(s) could not be traced to your base resume.</strong>
+        Review each one below. Approving a flagged line requires a reason, which is recorded.
+      </div>
+
+      <div id="flagList" class="flag-list"></div>
+
+      <details class="draft-details">
+        <summary>Full draft</summary>
+        <pre class="prompt-preview" id="draftText"></pre>
+      </details>
+      <details class="draft-details">
+        <summary>Base resume (what flags are checked against)</summary>
+        <pre class="prompt-preview" id="baseResumeText"></pre>
+      </details>
+    </div>
+
+    <div class="modal-foot">
+      <span class="hint" id="draftStatus"></span>
+      <button type="button" class="btn-ghost" data-close-modal>Close</button>
+      <button type="button" class="btn-primary" id="markAppliedFromDraft">Mark applied</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
+<script src="app.js"></script>
+<script src="discovered.js"></script>
+</body>
+</html>

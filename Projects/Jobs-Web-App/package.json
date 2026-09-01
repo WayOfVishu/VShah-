@@ -1,0 +1,21 @@
+{
+  "name": "jobs-web-app",
+  "version": "2.0.0",
+  "description": "Job discovery, resume tailoring, and application tracking in one app over a single jobs.db.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "discover": "node discover.js",
+    "bootstrap-sources": "node scripts/bootstrap-sources.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.19.2",
+    "fast-xml-parser": "^5.11.1",
+    "fuse.js": "^7.5.0",
+    "playwright": "^1.62.1"
+  }
+}
