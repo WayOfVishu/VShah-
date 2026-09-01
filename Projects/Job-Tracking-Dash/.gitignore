@@ -1,0 +1,4 @@
+# SQLite WAL sidecars — transient, recreated whenever the server runs.
+# jobs.db itself is tracked; these are not.
+jobs.db-wal
+jobs.db-shm
