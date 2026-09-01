@@ -1,0 +1,74 @@
+{
+  "_comment": "Where to look. bootstrap-sources.js rewrites this file wholesale; what you WANT lives in preferences.json, which it never touches.",
+  "tier1Watchlist": [
+    {
+      "name": "StackAdapt",
+      "platform": "greenhouse",
+      "slug": "stackadapt",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Canonical",
+      "platform": "greenhouse",
+      "slug": "canonical",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Xsolla",
+      "platform": "lever",
+      "slug": "xsolla",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Turing",
+      "platform": "greenhouse",
+      "slug": "turing",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Top Hat",
+      "platform": "ashby",
+      "slug": "top-hat",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "SpaceX",
+      "platform": "greenhouse",
+      "slug": "spacex",
+      "rateLimitMs": 2000
+    }
+  ],
+  "tier2Keywords": [
+    "software engineer",
+    "data engineer",
+    "machine learning engineer",
+    "new graduate",
+    "new grad software engineer"
+  ],
+  "tier2KeywordSource": "your stated search keywords",
+  "tier2Sources": [
+    {
+      "name": "remotive",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "remoteok",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "weworkremotely",
+      "rateLimitMs": 2000
+    }
+  ],
+  "tier2WwrCategories": [
+    "remote-programming-jobs",
+    "remote-devops-sysadmin-jobs"
+  ],
+  "tier2CareerPages": [
+    {
+      "name": "Top Hat",
+      "url": "https://jobs.ashbyhq.com/top-hat/24a445dc-857b-40ac-a8fc-b42c4949b0bc"
+    }
+  ],
+  "_tier2KeywordNote": "Jan 2027 is deliberately absent. Job boards index titles and descriptions, not start dates, so searching the API for \"Jan 2027\" returns almost nothing. It is handled as a scoring signal instead - see timingKeywords in preferences.json - which boosts a posting that does mention the window without hiding the ones that do not."
+}
