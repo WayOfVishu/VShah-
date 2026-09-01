@@ -274,3 +274,223 @@ tr:hover td { background: var(--panel-2); }
   .ticket-form { grid-template-columns: 1fr 1fr; }
   .mission-clock { gap: 1rem; }
 }
+
+/* ==========================================================================
+   Discovered view (PRD req. 31-32, §6 Design Considerations)
+   Reuses the existing panel/table/status-pill language rather than
+   introducing a second visual system.
+   ========================================================================== */
+
+/* ---------- View tabs ---------- */
+.view-tabs {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.view-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.view-tab:hover { color: var(--text); }
+.view-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-count {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+}
+
+.deck.single { grid-template-columns: 1fr; }
+.deck.single .panel { grid-column: span 1; }
+
+/* ---------- Source-health banner (req. 31: persistent, not a log line) ---------- */
+.source-banner {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+}
+.source-banner.is-critical { border-color: var(--danger); }
+.source-banner strong { color: var(--accent); }
+.source-banner.is-critical strong { color: var(--danger); }
+
+/* ---------- Controls ---------- */
+.discovered-controls { display: flex; gap: 0.5rem; }
+.discovered-controls input,
+.discovered-controls select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.discovered-controls input { width: 260px; }
+.load-more-wrap { display: flex; justify-content: center; padding-top: 0.75rem; }
+
+#discoveredTable td { vertical-align: top; }
+#discoveredTable .sources-cell { color: var(--muted); font-size: 0.75rem; }
+.row-error { color: var(--danger); font-size: 0.72rem; margin-top: 0.2rem; }
+
+/* ---------- Status badges: one per req. 18 state, visually distinct (§6) ---------- */
+.status-new       { color: var(--accent);  border-color: #e2a33b55; }
+.status-queued    { color: var(--teal);    border-color: #4fb0a555; }
+.status-generating{ color: var(--teal);    border-color: #4fb0a555; animation: pulse 1.4s ease-in-out infinite; }
+.status-tailored  { color: var(--green);   border-color: #5fb87e55; }
+.status-rejected  { color: var(--danger);  border-color: #e1614c55; }
+.status-dismissed { color: var(--grey);    border-color: #5b627255; }
+.status-applied   { color: var(--green);   border-color: #5fb87e99; background: #5fb87e18; }
+.status-archived  { color: var(--grey);    border-color: #5b627255; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.row-action {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}
+.row-action:hover { color: var(--text); border-color: var(--muted); }
+.row-action.primary { color: var(--accent); border-color: #e2a33b66; }
+.row-action.primary:hover { background: var(--accent-dim); }
+
+/* ---------- Modals: approval gate + draft review ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0b0d12cc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  z-index: 50;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: min(860px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal.wide { width: min(1040px, 100%); }
+.modal-head, .modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.2rem;
+}
+.modal-head { justify-content: space-between; border-bottom: 1px solid var(--line); }
+.modal-head h2 { font-size: 1.05rem; }
+.modal-foot { justify-content: flex-end; border-top: 1px solid var(--line); }
+.modal-foot .hint { margin-right: auto; }
+.modal-body { padding: 1.1rem 1.2rem; overflow-y: auto; }
+
+.prompt-preview {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 44vh;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.notice {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.8rem;
+  color: var(--muted);
+}
+.notice-warn { border-left-color: var(--danger); color: var(--text); }
+.notice-warn strong { color: var(--danger); }
+.notice-ok { border-left-color: var(--green); color: var(--green); }
+
+/* ---------- Traceability flags (req. 23, §6: shown inline, not in a log) ---------- */
+.flag-list { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 1rem; }
+.flag {
+  border: 1px solid #e1614c55;
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  padding: 0.7rem 0.85rem;
+  background: #e1614c0d;
+}
+.flag-resolved { border-color: #5fb87e55; border-left-color: var(--green); background: #5fb87e0d; }
+.flag-line { font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.5; }
+.flag-why { color: var(--muted); font-size: 0.74rem; margin-top: 0.35rem; }
+.flag-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.flag-reason {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.draft-details { margin-top: 0.8rem; }
+.draft-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 0.35rem 0;
+}
+.draft-details summary:hover { color: var(--text); }
+
+@media (max-width: 860px) {
+  .view-tabs { padding: 0 1rem; }
+  .discovered-controls { flex-direction: column; }
+  .discovered-controls input { width: 100%; }
+}
+
+/* A class that sets `display` beats the UA stylesheet's rule for the `hidden`
+   attribute, so `.deck`/`.modal-backdrop` stayed laid out (and kept
+   intercepting clicks) while nominally hidden. Restore the attribute's
+   meaning for every element that carries it. */
+[hidden] { display: none !important; }
+
+/* `.hint` was only ever styled inside a panel heading; the discovered view and
+   its modals use it as standalone helper text, which needs its own size. */
+.modal-body .hint,
+#discoveredSummary { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.8rem; }
+.modal-foot .hint { margin: 0 auto 0 0; }
+
+#discoveredTable td:first-child { white-space: nowrap; }
+#discoveredTable td.row-actions { white-space: nowrap; width: 1%; }
+#discoveredTable .title-cell { min-width: 210px; }

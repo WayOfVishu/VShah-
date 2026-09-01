@@ -451,12 +451,31 @@ postings happened to exist that day.
     `--allowedTools "Write"` and `--add-dir` scoped to `resume/drafts/`,
     capturing stdout for the run log. Task 5.5 (second-gate UI) is
     **not needed** and is skipped per its own instructions.
-- **Traceability-check method and threshold (req. 23):** this PRD commits
-  to *having* a concrete check and starting with a cheap heuristic (§7),
-  but the exact similarity method and the numeric threshold for "flag this
-  line" need to be chosen and tuned during implementation, likely by
-  running it against a few real tailored drafts and eyeballing the
-  flag rate.
+- **Traceability-check method and threshold (req. 23) — RESOLVED
+  (2026-09-01), see `lib/traceabilityCheck.js`:**
+  - **Method:** two independent deterministic rules, no LLM call (per §7).
+    (1) *Token overlap* — unigram coverage of each tailored line against the
+    base resume's token set, plus a bigram bonus rewarding intact phrasing,
+    weighted 0.75/0.25. Tokens are suffix-stemmed so `pipeline`/`pipelines`
+    and `trigger`/`triggering` count as the same evidence, while technical
+    tokens (`node.js`, `ci/cd`, `k8s`, `100k+`) are left verbatim.
+    (2) *Numeric support* — every number a line asserts must appear in the
+    base resume. This exists because overlap alone is blind to the most
+    likely real fabrication: a line made entirely of the resume's own words
+    with one metric inflated. Measured, "40%" changed to "85%" scores 0.92
+    on overlap and would have passed silently.
+  - **Threshold: 0.55.** Tuned against the real base resume, not guessed:
+    the resume scored against itself flags 0 of 67 lines (all score 1.0); a
+    genuinely-rephrased draft scores 0.662-1.0 with 0 flags; five clearly
+    fabricated lines score 0.0-0.335 and all 5 flag. 0.55 sits in the empty
+    gap between those two clusters with margin on both sides.
+  - **Known limitation:** the check scores vocabulary and numbers, not
+    meaning. A fabrication reusing the resume's exact words and real numbers
+    to assert something it doesn't say — moving a true achievement to a
+    different employer, say — will pass. That is the accepted cost of the
+    cheap-heuristic choice in §7; the user still reviews the draft, and §7's
+    "revisit only if the false-positive/false-negative rate proves
+    unworkable" still stands.
 - **Bootstrap script for req. 8:** the exact query/logic to derive the seed
   watchlist and keywords from the existing `jobs` table needs to be
   written as part of implementation — this PRD specifies its inputs and
