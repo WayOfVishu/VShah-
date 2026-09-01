@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// CLI entry point: `npm run discover` (PRD req. 13-16).
+// Discovery run (PRD req. 13-16). Started as a child process by the Refresh
+// button in the Discovered view; still runnable directly as `node discover.js`.
 // Orchestrates Tier 1 + Tier 2 connectors, normalizes, dedups, inserts new
 // discovered_jobs rows, prints a run summary, and sweeps stale rows into
 // `archived`. No OS-level scheduler triggers this — the user runs it by hand.
+// stdout is what the dashboard shows as the run log, so the summary below is
+// user-facing output, not debug logging.
 
 import Database from "better-sqlite3";
 import path from "node:path";
@@ -201,6 +204,9 @@ async function main() {
 
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
+  // The dashboard is serving reads off this same file while this run writes
+  // to it — the Refresh button starts this process from inside the server.
+  db.pragma("busy_timeout = 5000");
   applyMigrations(db);
 
   const prefs = loadPreferences();

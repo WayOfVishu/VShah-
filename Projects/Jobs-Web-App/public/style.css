@@ -338,7 +338,7 @@ tr:hover td { background: var(--panel-2); }
 
 /* ---------- Controls ---------- */
 .discovered-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-.discovered-controls input,
+.discovered-controls input:not([type="checkbox"]),
 .discovered-controls select {
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -347,7 +347,7 @@ tr:hover td { background: var(--panel-2); }
   color: var(--text);
   font-size: 0.85rem;
 }
-.discovered-controls input { width: 260px; }
+.discovered-controls input:not([type="checkbox"]) { width: 260px; }
 .load-more-wrap { display: flex; justify-content: center; padding-top: 0.75rem; }
 
 #discoveredTable td { vertical-align: top; }
@@ -476,7 +476,7 @@ tr:hover td { background: var(--panel-2); }
 @media (max-width: 860px) {
   .view-tabs { padding: 0 1rem; }
   .discovered-controls { flex-direction: column; }
-  .discovered-controls input { width: 100%; }
+  .discovered-controls input:not([type="checkbox"]) { width: 100%; }
 }
 
 /* A class that sets `display` beats the UA stylesheet's rule for the `hidden`
@@ -532,3 +532,76 @@ tr:hover td { background: var(--panel-2); }
 .bucket-unknown   { background: #f1f5f9; color: #64748b; }
 
 #mixSummary { margin-top: -0.25rem; font-variant-numeric: tabular-nums; }
+
+/* ---------- Refresh button + discovery run panel ---------- */
+/* The one control in the Discovered view that changes the database rather than
+   the view over it, so it reads as an action and not another filter. */
+.btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.btn-refresh:disabled { cursor: progress; filter: saturate(0.5) brightness(0.85); }
+
+.refresh-spinner { display: none; }
+.btn-refresh.is-busy .refresh-spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid #1a120644;
+  border-top-color: #1a1206;
+  border-radius: 50%;
+  animation: refresh-spin 0.7s linear infinite;
+}
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-refresh.is-busy .refresh-spinner { animation-duration: 2.4s; }
+}
+
+.run-panel {
+  margin: 0.75rem 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--grey);
+  border-radius: 6px;
+}
+.run-panel.is-running { border-left-color: var(--accent); }
+.run-panel.is-failed  { border-left-color: var(--danger); }
+
+.run-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.run-status {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-panel.is-running .run-status { color: var(--text); }
+.run-panel.is-failed .run-status { color: var(--danger); }
+
+/* A run prints a few hundred lines; the panel must not push the table off
+   screen, so the log scrolls inside a fixed height. */
+.run-log {
+  margin: 0.7rem 0 0;
+  padding: 0.6rem 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

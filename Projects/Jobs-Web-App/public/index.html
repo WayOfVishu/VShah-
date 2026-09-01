@@ -160,6 +160,10 @@
     <div class="log-panel-head">
       <h2 id="discoveredHeading">Discovered postings</h2>
       <div class="discovered-controls">
+        <button type="button" class="btn-primary btn-refresh" id="refreshDiscovery">
+          <span class="refresh-spinner" aria-hidden="true"></span>
+          <span id="refreshLabel">Refresh job searches</span>
+        </button>
         <input id="discoveredSearch" type="search" placeholder="Filter by title, company, location…" />
         <select id="statusFilter" aria-label="Filter by status">
           <option value="active" selected>Needs a decision</option>
@@ -198,6 +202,14 @@
       </div>
     </div>
 
+    <div class="run-panel" id="runPanel" hidden>
+      <div class="run-panel-head">
+        <span class="run-status" id="runStatus" role="status" aria-live="polite"></span>
+        <button type="button" class="btn-ghost" id="toggleRunLog" aria-expanded="false">Show log</button>
+      </div>
+      <pre class="run-log" id="runLog" hidden></pre>
+    </div>
+
     <p class="hint" id="mixSummary" hidden></p>
 
     <p class="hint" id="discoveredSummary">Loading…</p>
@@ -218,7 +230,7 @@
       <button type="button" class="btn-ghost" id="loadMore" hidden>Show more</button>
     </div>
     <p class="empty-state" id="discoveredEmpty" hidden>
-      No discovered postings match these filters. Run <code>npm run discover</code> to pull new ones,
+      No discovered postings match these filters. Hit <strong>Refresh job searches</strong> to pull new ones,
       widen “Posted ≤ 3 days”, or edit <code>config/preferences.json</code>.
     </p>
   </section>

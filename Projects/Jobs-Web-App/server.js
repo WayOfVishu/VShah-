@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { spawn } from "node:child_process";
 
 import { applyMigrations } from "./db/migrate.js";
 import { transition, USER_TRIGGERABLE } from "./lib/statusMachine.js";
@@ -25,6 +26,10 @@ const PORT = process.env.PORT || 3001;
 // scratch copy for testing. Defaults to the real file, unchanged.
 const db = new Database(process.env.JOBS_DB_PATH || path.join(__dirname, "jobs.db"));
 db.pragma("journal_mode = WAL");
+// A discovery run is a second writer on this file, started by the Refresh
+// button while the dashboard keeps serving reads. WAL allows that, but a write
+// that collides with one still fails instantly unless it is told to wait.
+db.pragma("busy_timeout = 5000");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
@@ -364,6 +369,91 @@ app.post("/api/discovered/:id/apply", handle((req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// API — discovery runs
+// ---------------------------------------------------------------------------
+// Discovery is driven from the Refresh button in the Discovered view. It runs
+// as a child process rather than inline: a run takes minutes, drives Playwright
+// against real job boards, and writes thousands of rows. Forking keeps the
+// dashboard responsive while it works, and keeps a connector that crashes hard
+// from taking the server down with it.
+//
+// State is deliberately in-memory and single-slot. There is one user and one
+// database; a run history would be a second source of truth about what the
+// feed already shows.
+const DISCOVER_SCRIPT = path.join(__dirname, "discover.js");
+const SOURCES_CONFIG = path.join(__dirname, "config", "sources.json");
+const MAX_LOG_LINES = 400;
+
+let run = null;
+
+function startDiscoveryRun() {
+  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env: process.env });
+
+  run = {
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    log: [],
+    child,
+  };
+
+  // discover.js already prints a structured run summary — the gate tolls, the
+  // insert count, the per-source failures. Streaming its stdout verbatim means
+  // the button reports exactly what the CLI did, with no second format to keep
+  // in sync.
+  const append = (chunk) => {
+    // Windows line endings arrive as "line\r"; trimEnd strips the CR while
+    // leaving the summary’s leading indentation intact.
+    for (const raw of chunk.toString().split("\n")) {
+      const line = raw.trimEnd();
+      if (line !== "") run.log.push(line);
+    }
+    if (run.log.length > MAX_LOG_LINES) run.log.splice(0, run.log.length - MAX_LOG_LINES);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+
+  child.on("error", (err) => {
+    run.status = "failed";
+    run.finishedAt = new Date().toISOString();
+    run.child = null;
+    run.log.push(`could not start discovery: ${err.message}`);
+  });
+
+  child.on("close", (code) => {
+    run.status = code === 0 ? "done" : "failed";
+    run.exitCode = code;
+    run.finishedAt = new Date().toISOString();
+    run.child = null;
+  });
+
+  return run;
+}
+
+// The child handle is not serializable, and the client has no use for it.
+const runState = () => {
+  if (!run) return { status: "idle", log: [] };
+  const { child, ...rest } = run;
+  return rest;
+};
+
+app.post("/api/discover", (req, res) => {
+  if (run?.status === "running") {
+    return res.status(409).json({ error: "A discovery run is already in progress." });
+  }
+  if (!existsSync(SOURCES_CONFIG)) {
+    return res
+      .status(400)
+      .json({ error: 'config/sources.json not found. Run "npm run bootstrap-sources" first.' });
+  }
+  startDiscoveryRun();
+  res.status(202).json(runState());
+});
+
+app.get("/api/discover/status", (req, res) => res.json(runState()));
+
+// ---------------------------------------------------------------------------
 // API — CSV export (every column, for spreadsheet-side analysis)
 // ---------------------------------------------------------------------------
 app.get("/api/export", (req, res) => {
@@ -389,6 +479,10 @@ app.listen(PORT, () => {
 // ---------------------------------------------------------------------------
 function shutdown(signal) {
   console.log(`\nReceived ${signal}. Flushing WAL and shutting down...`);
+
+  // Otherwise a half-finished discovery run keeps scraping, and the Playwright
+  // browsers it started outlive the server that started them.
+  if (run?.child) run.child.kill();
 
   try {
     // Force checkpoint: merge WAL into main DB

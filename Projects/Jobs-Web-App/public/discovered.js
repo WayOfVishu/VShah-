@@ -7,6 +7,13 @@ const dEls = {
   discoveredView: document.getElementById("discoveredView"),
   count: document.getElementById("discoveredCount"),
 
+  refresh: document.getElementById("refreshDiscovery"),
+  refreshLabel: document.getElementById("refreshLabel"),
+  runPanel: document.getElementById("runPanel"),
+  runStatus: document.getElementById("runStatus"),
+  runLog: document.getElementById("runLog"),
+  toggleRunLog: document.getElementById("toggleRunLog"),
+
   banner: document.getElementById("sourceBanner"),
   bannerText: document.getElementById("sourceBannerText"),
   dismissBanner: document.getElementById("dismissBanner"),
@@ -192,6 +199,106 @@ dEls.dismissBanner.addEventListener("click", () => {
 [dEls.sortMode, dEls.freshness, dEls.bucketFilter, dEls.hideApplied].forEach((el) =>
   el.addEventListener("change", loadDiscovered)
 );
+
+// ---------------------------------------------------------------------------
+// Discovery runs
+// ---------------------------------------------------------------------------
+// The server runs discovery in a child process and holds the run state, so this
+// is a poller, not an owner: on load it adopts whatever run is already in
+// flight. A reload mid-run rejoins it instead of appearing to have lost it, and
+// a second tab shows the same run rather than starting a competing one.
+const POLL_MS = 1500;
+let pollTimer = null;
+
+function renderRun(state) {
+  if (state.status === "idle") {
+    dEls.runPanel.hidden = true;
+    return;
+  }
+  dEls.runPanel.hidden = false;
+  dEls.runPanel.classList.toggle("is-running", state.status === "running");
+  dEls.runPanel.classList.toggle("is-failed", state.status === "failed");
+
+  const running = state.status === "running";
+  dEls.refresh.disabled = running;
+  dEls.refresh.classList.toggle("is-busy", running);
+  dEls.refreshLabel.textContent = running ? "Searching…" : "Refresh job searches";
+
+  // The last line discover.js printed is the most useful one-line status there
+  // is — it names the tier currently being fetched.
+  const last = state.log.length ? state.log[state.log.length - 1] : "";
+  if (running) {
+    dEls.runStatus.textContent = last || "Starting discovery…";
+  } else if (state.status === "done") {
+    const saved = state.log.find((l) => l.includes("New postings saved:"));
+    dEls.runStatus.textContent = saved ? saved.trim() : "Run finished.";
+  } else {
+    dEls.runStatus.textContent = `Run failed (exit ${state.exitCode}). ${last}`;
+  }
+
+  dEls.runLog.textContent = state.log.join("\n");
+  // Only autoscroll while the log is growing; once the run is over the user may
+  // be reading the gate tolls further up.
+  if (running && !dEls.runLog.hidden) dEls.runLog.scrollTop = dEls.runLog.scrollHeight;
+}
+
+async function pollRun() {
+  let state;
+  try {
+    state = await api("/api/discover/status");
+  } catch {
+    // A dropped poll is not a failed run — the server may just be busy under
+    // the run’s own writes. Keep polling rather than declaring failure.
+    return;
+  }
+  renderRun(state);
+
+  if (state.status === "running") return;
+
+  clearInterval(pollTimer);
+  pollTimer = null;
+  // The run wrote rows straight into jobs.db, so the feed on screen is stale
+  // the moment it finishes.
+  if (state.status === "done") await loadDiscovered();
+  else loadSourceHealth();
+}
+
+function watchRun() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollRun, POLL_MS);
+}
+
+dEls.refresh.addEventListener("click", async () => {
+  dEls.refresh.disabled = true;
+  try {
+    renderRun(await api("/api/discover", { method: "POST" }));
+    watchRun();
+  } catch (err) {
+    dEls.runPanel.hidden = false;
+    dEls.runPanel.classList.add("is-failed");
+    dEls.runStatus.textContent = err.message;
+    dEls.refresh.disabled = false;
+    // A 409 means a run this tab did not start is already going; join it.
+    watchRun();
+  }
+});
+
+dEls.toggleRunLog.addEventListener("click", () => {
+  const show = dEls.runLog.hidden;
+  dEls.runLog.hidden = !show;
+  dEls.toggleRunLog.textContent = show ? "Hide log" : "Show log";
+  dEls.toggleRunLog.setAttribute("aria-expanded", String(show));
+  if (show) dEls.runLog.scrollTop = dEls.runLog.scrollHeight;
+});
+
+// Adopt an in-flight run on first load.
+api("/api/discover/status")
+  .then((state) => {
+    renderRun(state);
+    if (state.status === "running") watchRun();
+  })
+  .catch(() => {});
+
 
 // ---------------------------------------------------------------------------
 // Rendering
