@@ -6,10 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "discover": "node discover.js",
-    "bootstrap-sources": "node scripts/bootstrap-sources.js",
-    "test": "node --test"
+    "bootstrap-sources": "node scripts/bootstrap-sources.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",

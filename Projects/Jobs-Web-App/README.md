@@ -13,8 +13,14 @@ through a hand-built `file://` URL; folding them together removed that seam.
 ```
 npm install
 npm start              # dashboard at http://localhost:3001
-npm run discover       # pull new postings from every configured source
 ```
+
+That is the whole surface. Discovery is not a second command any more: the
+**Refresh job searches** button at the top of the Discovered view starts a run,
+streams its output into the panel below the button, and reloads the feed when it
+finishes. The server runs it as a child process, so the dashboard stays
+responsive while Playwright works and a connector that crashes hard cannot take
+the server down with it.
 
 ---
 
@@ -47,7 +53,7 @@ A posting is ingested only if **all** of these hold:
 | Location | Resolves to one of your five locations. Off-list postings are dropped; postings with *no* stated location are kept and bucketed `unknown`. |
 | Not yours already | Not already in the applied log, by apply URL or by normalized title + company. |
 
-`npm run discover` reports each gate's toll separately, so a keyword list that
+A run reports each gate's toll separately, so a keyword list that
 is too narrow stays distinguishable from a location list that is too narrow —
 and from a connector that has quietly broken.
 
@@ -151,7 +157,7 @@ posting that does mention the window without hiding the ones that don't.
 
 ```
 server.js                Express app + REST API (both views)
-discover.js              CLI: npm run discover
+discover.js              one discovery run; spawned by the Refresh button
 config/
   preferences.json       what you want — filters, weights, keywords
   sources.json           where to look — watchlist, search terms
@@ -182,7 +188,7 @@ resume/                  your base resume + generated drafts (git-ignored)
 jobs.db                  the single SQLite file both entry points share
 ```
 
-`npm test` runs the suite — 94 tests, no network, no database of its own.
+`node --test` runs the suite — 94 tests, no network, no database of its own.
 
 ---
 
