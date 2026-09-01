@@ -54,7 +54,14 @@ actual dashboard app being extended with a "Discovered" tab.
   the actual invocation (req. 27).
 - `lib/traceabilityCheck.js` (+ `.test.js`) - Post-generation
   similarity/traceability heuristic flagging tailored lines not present
-  in the base resume (PRD req. 23).
+  in the base resume (PRD req. 23). Scores one claim per sentence (not per
+  physical line) and applies a second, numeric-support rule.
+- `lib/statusMachine.js` - The `discovered_jobs` transition table and its
+  guard (PRD req. 21). Not in this file list originally; extracted so both
+  `server.js` and `tailorInvoke.js` enforce the same rules and the "no
+  tailoring without confirmation" guarantee is testable in isolation.
+- `db/migrate.test.js` - Migration additivity/idempotency plus the
+  `ON DELETE SET NULL` and constraint behaviour required by task 7.5.
 - `lib/tailorInvoke.js` - The `queued → generating → tailored` transition;
   shells out to `claude -p` directly per the task 1.0 spike result (PRD
   req. 21, 27-28).
@@ -258,65 +265,206 @@ after finishing an entire parent task.
   collapsed into one `discovered_jobs` row listing `["ashby","careerpage"]`
   — validating req. 11 end-to-end, not just in the unit tests.
 
-- [ ] 5.0 Approval gate + prompt construction + injection sanitization
-  - [ ] 5.1 Implement `lib/promptSanitize.js`: strip/neutralize
+- [x] 5.0 Approval gate + prompt construction + injection sanitization
+  - [x] 5.1 Implement `lib/promptSanitize.js`: strip/neutralize
     instruction-like patterns in scraped text, wrap in explicit
     data-delimiters (req. 24); write the injected-text fixture test
-    required by the PRD before this task is considered done.
-  - [ ] 5.2 Implement `lib/promptBuild.js`: assemble the tailoring prompt
+    required by the PRD before this task is considered done. **6/6 tests
+    passing** in `lib/promptSanitize.test.js` — the required injected-text
+    fixture trips all 8 rules (override-instructions,
+    replacement-instructions, role-marker, turn-token, persona-reset,
+    prompt-exfiltration, fabrication-directive, fence-escape), plus tests
+    that a clean posting is untouched (no false positives), that the real
+    job description survives, and that a payload cannot break out of the
+    data fence. Also strips zero-width/bidi characters, which would
+    otherwise be invisible in the req. 22 preview the user approves.
+  - [x] 5.2 Implement `lib/promptBuild.js`: assemble the tailoring prompt
     from base resume + sanitized posting content, reusable by both the
-    preview and the real invocation.
-  - [ ] 5.3 Add the `discovered_jobs` status-machine transitions
+    preview and the real invocation. Sanitizes `title`/`company` too, not
+    just `description` — those are scraped text landing in the same
+    prompt. Exports `BASE_RESUME_PATH`/`DRAFTS_DIR`/`draftFilename()` so
+    tasks 6.1-6.2 don't re-derive the req. 25/26 paths.
+  - [x] 5.3 Add the `discovered_jobs` status-machine transitions
     (`new → queued`, `queued → rejected`, `queued`-edit-`→ queued`) as
-    server endpoints (req. 21, 30).
-  - [ ] 5.4 Build the "Confirm & Generate" preview: show the constructed
+    server endpoints (req. 21, 30). Extracted the transition table into
+    `lib/statusMachine.js` (not in the original file list, same rationale as
+    `lib/sourceHealth.js`) so the rules live in one testable place instead
+    of being implied by whichever endpoint happens to run. `server.js`
+    handlers never write `status` directly. `generating` and `tailored`
+    are deliberately unreachable from the user-facing endpoint, which is
+    what makes PRD §8's "status only reaches `tailored` via
+    `queued → generating → tailored`" a property of the code.
+
+    **One modelling correction found by testing the live API:** the first
+    cut only allowed `applied` from `tailored`, but req. 32 lists
+    mark-applied as a plain row action — the user may apply to a posting
+    without ever requesting a tailored resume. `new → applied` and
+    `queued → applied` are now legal; `rejected`/`dismissed → applied`
+    still are not without an explicit restore.
+  - [x] 5.4 Build the "Confirm & Generate" preview: show the constructed
     prompt/posting content before any `queued → generating` transition
     (req. 22); no file write path exists yet at this point in the build —
-    that's task 6.0.
+    that's task 6.0. `GET /api/discovered/:id/preview` renders the prompt
+    with the **same `buildTailoringPrompt()` the real invocation uses**, so
+    what the user approves cannot drift from what Claude Code receives. The
+    modal also names the exact output path and warns when the sanitizer
+    fired (req. 24) — a scrubbed posting is disclosed, not silently altered
+    behind the user's back.
   - [x] 5.5 Once task 1.0's result is known: if a second tool-level
     permission prompt exists, add the UI/flow for surfacing it as a
     distinct second confirmation (req. 22); if not, note that only one
     gate is needed and skip this sub-task. **Skipped — no second gate
     exists (task 1.0 result).**
 
-- [ ] 6.0 Tailoring invocation + fabrication guardrail + audit log
-  - [ ] 6.1 Implement `lib/tailorInvoke.js`'s `queued → generating`
+- [x] 6.0 Tailoring invocation + fabrication guardrail + audit log
+  - [x] 6.1 Implement `lib/tailorInvoke.js`'s `queued → generating`
     transition per the task 1.0 outcome: either shell out to Claude Code
     directly and capture output, or write the prompt+posting to a
-    manual-paste file (req. 21, 27).
-  - [ ] 6.2 On success, write the tailored draft to
+    manual-paste file (req. 21, 27). **Took req. 27's first branch** per the
+    task 1.0 GO: shells out to `claude -p` with `--allowedTools "Write"`
+    and `--add-dir` scoped to the drafts directory (never
+    `--allow-dangerously-skip-permissions`), reusing the spike's
+    VS-Code-extension binary resolution. `tailorJob()` **refuses to run on
+    a row that isn't already `queued`**, so PRD §8's "zero tailored resumes
+    without an explicit confirmation" is enforced by the code rather than by
+    convention.
+  - [x] 6.2 On success, write the tailored draft to
     `resume/drafts/{company}-{title}-{job_id}.md`, set `resume_path`,
-    transition to `tailored` (req. 26).
-  - [ ] 6.3 On failure, transition back to `queued` with a visible error,
-    never silently to `new` (req. 28).
-  - [ ] 6.4 Implement `lib/traceabilityCheck.js`: a token-overlap heuristic
+    transition to `tailored` (req. 26). Prefers the file Claude wrote via
+    its scoped Write tool; falls back to persisting captured stdout (fence
+    and preamble stripped) if it answered in text instead — either way the
+    draft lands at the single req. 26 path.
+  - [x] 6.3 On failure, transition back to `queued` with a visible error,
+    never silently to `new` (req. 28). Covers non-zero exit, timeout,
+    empty/unusable output, and spawn failure; a later successful retry
+    clears `tailor_error`. **12/12 tests passing**
+    (`lib/tailorInvoke.test.js`), using an injected `runner` seam so the
+    failure paths don't each spend a real Claude Code call.
+  - [x] 6.4 Implement `lib/traceabilityCheck.js`: a token-overlap heuristic
     comparing each tailored line against `resume/base-resume.md`, flagging
     lines below a threshold (req. 23, §7 — start with the cheap heuristic,
-    not a second LLM call).
-  - [ ] 6.5 Surface flagged lines in the approval/result view, highlighted
-    against the base resume (§6 Design Considerations).
-  - [ ] 6.6 Implement the override flow: approving a flagged line requires
-    a short reason, written to the `overrides` table (req. 23).
-  - [ ] 6.7 Write tests for 6.4 using at least one drafted resume with a
+    not a second LLM call). **Two independent rules, because overlap alone
+    has a blind spot:** (1) token-overlap (unigram coverage + bigram phrasing
+    bonus, with suffix stemming so `pipeline`/`pipelines` are the same
+    evidence), and (2) a numeric-support rule, since a line built entirely
+    from the resume's own vocabulary with one metric inflated ("40%" ->
+    "85%") scores ~0.92 on overlap and would otherwise pass — and req. 23
+    names dates and metrics explicitly. **Threshold tuned to 0.55 against the
+    real base resume** (see 6.7).
+  - [x] 6.5 Surface flagged lines in the approval/result view, highlighted
+    against the base resume (§6 Design Considerations). The draft modal
+    shows each flagged claim as its own card with the reason it flagged
+    ("only 7% of this line traces back to your base resume", or the specific
+    unsupported numbers), with the full draft and the base resume inline in
+    the same view rather than in a separate log file.
+  - [x] 6.6 Implement the override flow: approving a flagged line requires
+    a short reason, written to the `overrides` table (req. 23). Enforced on
+    **both** sides — the endpoint rejects an empty reason with a 400, and
+    the UI refuses to submit one. An overridden claim renders as resolved
+    with its recorded reason visible, so the audit trail is part of the
+    view rather than hidden in the database.
+  - [x] 6.7 Write tests for 6.4 using at least one drafted resume with a
     deliberately fabricated line and one fully-traceable draft, asserting
-    the flag fires only on the fabricated one.
+    the flag fires only on the fabricated one. **13/13 tests passing**
+    (`lib/traceabilityCheck.test.js`).
 
-- [ ] 7.0 Dashboard: Discovered view, actions, source health, reconciliation
-  - [ ] 7.1 Add new read/write endpoints to `server.js` (list discovered
+    **Threshold resolved (PRD Open Question): 0.55.** Measured against the
+    real `resume/base-resume.md`: the resume scored against itself flags 0
+    of 67 lines; a hand-written but genuinely-rephrased draft scores
+    0.662-1.0 (0 flags); five clearly fabricated lines score 0-0.335 (5/5
+    flagged). 0.55 sits in the empty gap between 0.335 and 0.662, with
+    margin on both sides. Separately, the numeric rule catches two
+    number-swap fabrications that scored 0.92 and 0.854 on overlap alone.
+
+    **Known limitation, honestly stated:** the heuristic scores *vocabulary
+    and numbers*, not meaning. A fabrication that reuses the resume's exact
+    words and its real numbers to assert something the resume doesn't say
+    (e.g. moving a real achievement to a different employer) will pass. That
+    is the accepted cost of PRD §7's "cheap deterministic heuristic, not a
+    second LLM call" — the user still reviews the draft.
+
+- [x] 7.0 Dashboard: Discovered view, actions, source health, reconciliation
+  - [x] 7.1 Add new read/write endpoints to `server.js` (list discovered
     jobs, request-tailoring/confirm, reject, dismiss, mark-applied) without
-    touching existing `/api/jobs*` routes (req. 30).
-  - [ ] 7.2 Build the "Discovered" tab in `public/` (new section or file),
+    touching existing `/api/jobs*` routes (req. 30). Ten new endpoints
+    under `/api/discovered`; the existing `/api/jobs*` routes and the
+    `jobs` table are untouched. `server.js` imports the pipeline's pure
+    modules across the project boundary by path — none of them pull a
+    dependency `Job-Tracking-Dash` doesn't already have. It also calls
+    `applyMigrations(db)` on boot, so the dashboard and `discover.js` agree
+    on the schema whichever starts first. Added `JOBS_DB_PATH` support
+    (matching `discover.js`) so the server can be pointed at a scratch copy
+    for testing; the default is unchanged.
+  - [x] 7.2 Build the "Discovered" tab in `public/` (new section or file),
     sorted by `match_score` then recency, archived hidden by default (req.
-    31), reusing the existing dashboard's visual style.
-  - [ ] 7.3 Add status badges for every state in req. 18, and a persistent
+    31), reusing the existing dashboard's visual style. New
+    `public/discovered.js` + markup in `index.html`; `app.js` is untouched
+    apart from one line exposing `reloadJobs` so the applied log refreshes
+    after a reconciliation. NULL `match_score` sorts last rather than ahead
+    of everything (no scoring ships in v1).
+
+    **Mitigation for the 3.0 "reviewable queue" rough edge:** with ~2,900
+    rows the table renders 60 at a time behind a text filter and a status
+    filter defaulting to "Needs a decision" (`new`/`queued`/`generating`/
+    `tailored`). That is the honest v1 answer to PRD Goal 7 — real triage
+    still waits on `match_score` ranking, which is explicitly deferred.
+  - [x] 7.3 Add status badges for every state in req. 18, and a persistent
     source-health banner when any source is `permanent-fail` (req. 31, §6).
-  - [ ] 7.4 Wire up row actions: select + request tailoring, reject,
-    dismiss, mark applied (req. 32).
-  - [ ] 7.5 Implement mark-applied → create the corresponding row in the
+    All eight statuses have distinct badges (`generating` pulses). The
+    banner separates `permanent-fail` (critical, red) from `render-failed`
+    (will retry); dismissing it hides it for that page load only, so a
+    permanent failure returns on reload until the source is actually fixed.
+  - [x] 7.4 Wire up row actions: select + request tailoring, reject,
+    dismiss, mark applied (req. 32). Actions are per-status, so the table
+    only ever offers legal transitions — the state machine still rejects
+    anything else server-side. Reject and mark-applied confirm first.
+  - [x] 7.5 Implement mark-applied → create the corresponding row in the
     existing `jobs` table, pre-filled from the discovered job, and set
     `discovered_jobs.applied_job_id` (req. 32); verify the `ON DELETE SET
     NULL` behavior by deleting an applied `jobs` row in a test and
-    confirming the discovered-job record survives, unlinked.
-  - [ ] 7.6 Manual end-to-end pass: run `npm run discover`, confirm rows
+    confirming the discovered-job record survives, unlinked. Wrapped in a
+    SQLite transaction so a row can never end up `applied` without its
+    `jobs` row. The tailored draft's path is carried into the applied row's
+    notes. **Verified both ways:** live against the running API (deleted
+    `jobs` row 50 → discovered row survived with `applied_job_id = null`),
+    and as an automated test — **6/6 passing** in `db/migrate.test.js`,
+    which also covers migration additivity, idempotency, the `apply_url`
+    UNIQUE constraint, and the status CHECK constraint.
+  - [x] 7.6 Manual end-to-end pass: run `npm run discover`, confirm rows
     appear, tailor one real posting through to a written draft, mark it
     applied, and confirm it shows up correctly in the existing Applied log.
+    **Done, on this machine, against live APIs and a real `claude -p` call:**
+    1. `npm run discover` — 3,151 postings fetched across all 9 sources,
+       3,131 correctly deduped against the existing 2,908 rows, 20 genuinely
+       new, **zero source failures**.
+    2. Queued and generated a tailored draft for a real posting (StackAdapt
+       "Machine Learning Engineer", Calgary — a company already in the
+       applied log). `claude -p` returned in **44s**, wrote
+       `resume/drafts/stackadapt-machine-learning-engineer-32.md`, and the
+       row moved `queued → generating → tailored`.
+    3. **The fabrication guardrail caught a real fabrication in real
+       output.** The draft's summary asserted "Comfortable taking an
+       ambiguously scoped problem, breaking it into actionable steps, and
+       delivering it end to end" — phrasing lifted from the job posting, not
+       present anywhere in the base resume. Flagged at **0.068**. Approving
+       it without a reason was refused; approving with one recorded the
+       override and resolved the flag.
+    4. Marked applied → created `jobs` row 51, pre-filled, linked via
+       `applied_job_id`, with the draft path in its notes, and it appears
+       correctly in the existing Applied log.
+
+    **A real bug this pass found (unit tests alone did not):** the
+    traceability check scored *physical lines*, but Markdown hard-wraps a
+    paragraph across several of them. On the real draft that produced two
+    false flags on wrap fragments ("deployed on Kubernetes. Comfortable
+    taking an...") while burying the genuine fabrication inside one of them.
+    `traceabilityCheck.js` now regroups wrapped lines into logical blocks
+    and scores **one claim per sentence**, which dropped the false positives
+    to zero and isolated the real fabrication at 0.068. Covered by four new
+    regression tests.
+
+    **A second bug, found by browser-testing the UI:** `.deck` and
+    `.modal-backdrop` set `display`, which beats the UA stylesheet's rule
+    for the `hidden` attribute — so both "hidden" modals stayed laid out and
+    silently swallowed every click on the page. Fixed with an explicit
+    `[hidden] { display: none !important; }`.
