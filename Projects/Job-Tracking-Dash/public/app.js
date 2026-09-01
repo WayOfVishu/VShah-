@@ -409,4 +409,8 @@ els.logBody.addEventListener("click", (e) => {
 // default the timestamp field to "now" for convenience
 document.getElementById("jobForm").timestamp.value = toLocalInputValue(new Date().toISOString());
 
+// discovered.js calls this after marking a discovered posting applied, so the
+// new row shows up in this log without a page reload (PRD req. 32).
+window.reloadJobs = loadJobs;
+
 loadJobs();
