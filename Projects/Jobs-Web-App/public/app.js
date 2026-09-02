@@ -65,9 +65,13 @@ async function submitForm(e) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || "Something went wrong saving that entry.");
+    showToast(err.error || "Something went wrong saving that entry.", { type: "error" });
     return;
   }
+  showToast(
+    editingId ? `Saved changes to ${payload.title}.` : `Logged application to ${payload.company}.`,
+    { type: "success" }
+  );
   resetForm();
   await loadJobs();
 }
@@ -97,8 +101,14 @@ function startEdit(job) {
 }
 
 async function deleteJob(id) {
-  if (!confirm("Delete this application entry? This can't be undone.")) return;
+  const ok = await confirmDialog("Delete this application entry? This can't be undone.", {
+    title: "Delete application?",
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
   await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+  showToast("Application deleted.", { type: "success" });
   await loadJobs();
 }
 
@@ -131,21 +141,21 @@ function renderAll() {
 }
 
 function renderClock() {
-  els.totalNum.textContent = jobs.length;
+  animateNumber(els.totalNum, jobs.length);
 
   if (jobs.length === 0) {
-    els.dayNum.textContent = "0";
-    els.paceNum.textContent = "0.0";
-    els.streakNum.textContent = "0";
+    animateNumber(els.dayNum, 0);
+    animateNumber(els.paceNum, 0, { decimals: 1 });
+    animateNumber(els.streakNum, 0);
     return;
   }
 
   const firstDay = startOfDay(new Date(jobs[0].timestamp));
   const today = startOfDay(new Date());
   const daysActive = Math.floor((today - firstDay) / 86400000) + 1;
-  els.dayNum.textContent = daysActive;
-  els.paceNum.textContent = (jobs.length / daysActive).toFixed(1);
-  els.streakNum.textContent = computeStreak();
+  animateNumber(els.dayNum, daysActive);
+  animateNumber(els.paceNum, jobs.length / daysActive, { decimals: 1 });
+  animateNumber(els.streakNum, computeStreak());
 }
 
 function computeStreak() {
@@ -191,7 +201,7 @@ function renderHeatmap() {
   }
 }
 
-function renderTable() {
+function renderTable(animate = true) {
   const q = els.search.value.trim().toLowerCase();
   const filtered = q
     ? jobs.filter((j) => [j.title, j.company, j.platform].join(" ").toLowerCase().includes(q))
@@ -215,6 +225,8 @@ function renderTable() {
       </td>`;
     els.logBody.appendChild(tr);
   });
+  if (animate) staggerRows(els.logBody);
+  else [...els.logBody.children].forEach((row) => (row.style.animation = "none"));
 }
 
 function escapeHtml(s) {
@@ -397,7 +409,7 @@ function upsertChart(canvasId, type, data, extraOptions = {}) {
 // ---------------------------------------------------------------------------
 els.form.addEventListener("submit", submitForm);
 els.cancelEdit.addEventListener("click", resetForm);
-els.search.addEventListener("input", renderTable);
+els.search.addEventListener("input", () => renderTable(false));
 els.logBody.addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
