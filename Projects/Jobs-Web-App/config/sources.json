@@ -1,11 +1,195 @@
 {
   "_comment": "Where to look. bootstrap-sources.js rewrites this file wholesale; what you WANT lives in preferences.json, which it never touches.",
+  "_watchlistNote": "Every board below was probed live on 2026-09-02 and returned postings. Slug boards (greenhouse/lever/ashby/workable/recruitee/bamboohr) take one identifier. Workday takes three — tenant, host, site — because a Workday board is addressed by cell and career-site name, not by a single slug. Run `node scripts/probe-workday.js <company>` to find the three parts for a company not listed here.",
+  "_tier1SearchKeywords": "Workday boards are searched, not listed: BMO's board is 927 postings and searchText narrows it to 54 server-side. Every term here costs one paginated round-trip per Workday board, so overlapping terms are expensive for nothing - 'developer' was dropped because 'software developer' covers the case that matters, and 'graduate' because 'new grad' does. Omit this key to fall back to preferences.roleKeywords.",
+  "tier1SearchKeywords": [
+    "software engineer",
+    "software developer",
+    "data engineer",
+    "data scientist",
+    "machine learning",
+    "new grad"
+  ],
   "tier1Watchlist": [
+    {
+      "name": "Neo Financial",
+      "platform": "ashby",
+      "slug": "neofinancial",
+      "rateLimitMs": 2000,
+      "_note": "Calgary HQ. 94 postings, 14 in Alberta at time of probe."
+    },
+    {
+      "name": "Benevity",
+      "platform": "ashby",
+      "slug": "benevity",
+      "rateLimitMs": 2000,
+      "_note": "Calgary HQ."
+    },
+    {
+      "name": "Jobber",
+      "platform": "ashby",
+      "slug": "jobber",
+      "rateLimitMs": 2000,
+      "_note": "Edmonton HQ, hires remote across Canada."
+    },
     {
       "name": "StackAdapt",
       "platform": "greenhouse",
       "slug": "stackadapt",
+      "rateLimitMs": 2000,
+      "_note": "Remote-Canada roles list Calgary explicitly. The only source that has ever produced a Calgary posting for you."
+    },
+    {
+      "name": "Hootsuite",
+      "platform": "greenhouse",
+      "slug": "hootsuite",
       "rateLimitMs": 2000
+    },
+    {
+      "name": "1Password",
+      "platform": "ashby",
+      "slug": "1password",
+      "rateLimitMs": 2000,
+      "_note": "Remote-first across Canada."
+    },
+    {
+      "name": "Wealthsimple",
+      "platform": "ashby",
+      "slug": "wealthsimple",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Cohere",
+      "platform": "ashby",
+      "slug": "cohere",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Dialpad",
+      "platform": "greenhouse",
+      "slug": "dialpad",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Trulioo",
+      "platform": "ashby",
+      "slug": "trulioo",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Tenstorrent",
+      "platform": "greenhouse",
+      "slug": "tenstorrent",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Geotab",
+      "platform": "greenhouse",
+      "slug": "geotab",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Faire",
+      "platform": "greenhouse",
+      "slug": "faire",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Fullscript",
+      "platform": "lever",
+      "slug": "fullscript",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "Top Hat",
+      "platform": "ashby",
+      "slug": "top-hat",
+      "rateLimitMs": 2000
+    },
+    {
+      "name": "BMO",
+      "platform": "workday",
+      "tenant": "bmo",
+      "host": "wd3",
+      "site": "External",
+      "rateLimitMs": 600,
+      "_note": "927 postings. Had 'Full Stack Engineer (AI-Enabled), Calgary AB' open at time of probe."
+    },
+    {
+      "name": "CIBC",
+      "platform": "workday",
+      "tenant": "cibc",
+      "host": "wd3",
+      "site": "Search",
+      "rateLimitMs": 600
+    },
+    {
+      "name": "Suncor",
+      "platform": "workday",
+      "tenant": "suncor",
+      "host": "wd1",
+      "site": "Suncor_External",
+      "rateLimitMs": 600,
+      "_note": "Calgary HQ."
+    },
+    {
+      "name": "Cenovus",
+      "platform": "workday",
+      "tenant": "cenovus",
+      "host": "wd3",
+      "site": "Careers",
+      "rateLimitMs": 600,
+      "_note": "Calgary HQ."
+    },
+    {
+      "name": "Enbridge",
+      "platform": "workday",
+      "tenant": "enbridge",
+      "host": "wd3",
+      "site": "ENBRIDGE_Careers",
+      "rateLimitMs": 600,
+      "_note": "Calgary HQ."
+    },
+    {
+      "name": "Ovintiv",
+      "platform": "workday",
+      "tenant": "ovintiv",
+      "host": "wd3",
+      "site": "ovintivcareers",
+      "rateLimitMs": 600,
+      "_note": "Calgary HQ."
+    },
+    {
+      "name": "Finning",
+      "platform": "workday",
+      "tenant": "finning",
+      "host": "wd3",
+      "site": "External",
+      "rateLimitMs": 600,
+      "_note": "Large Alberta footprint."
+    },
+    {
+      "name": "Ledcor",
+      "platform": "workday",
+      "tenant": "ledcor",
+      "host": "wd3",
+      "site": "Ledcor_External",
+      "rateLimitMs": 600,
+      "_note": "Calgary/Edmonton."
+    },
+    {
+      "name": "Pandell",
+      "platform": "workable",
+      "slug": "pandell",
+      "rateLimitMs": 600,
+      "_note": "Calgary software company."
+    },
+    {
+      "name": "Showpass",
+      "platform": "bamboohr",
+      "slug": "showpass",
+      "rateLimitMs": 600,
+      "_note": "Calgary software company."
     },
     {
       "name": "Canonical",
@@ -26,16 +210,11 @@
       "rateLimitMs": 2000
     },
     {
-      "name": "Top Hat",
-      "platform": "ashby",
-      "slug": "top-hat",
-      "rateLimitMs": 2000
-    },
-    {
       "name": "SpaceX",
       "platform": "greenhouse",
       "slug": "spacex",
-      "rateLimitMs": 2000
+      "rateLimitMs": 2000,
+      "_note": "Kept on purpose. Seattle is a deliberate 5% lottery-ticket bucket for big-name roles worth relocating a year for; SpaceX is one of the few of those with a public board. You hold no US work authorization, so a posting here that never mentions sponsorship has its score cut to 35% and is flagged 🛂 on the row — visible, but not competing with the 95% you would actually take."
     }
   ],
   "tier2Keywords": [
@@ -46,6 +225,8 @@
     "new grad software engineer"
   ],
   "tier2KeywordSource": "your stated search keywords",
+  "_tier2Sources": "The Tier 2 sources to actually run. Removing one from this list stops it being fetched at all — it is not merely a table of rate limits.",
+  "_weworkremotelyRemoved": "WeWorkRemotely was removed on 2026-09-02: it charges the applicant to apply, so its postings cost money to act on. The connector still exists and works; re-add { \"name\": \"weworkremotely\", \"rateLimitMs\": 2000 } here to turn it back on, along with tier2WwrCategories.",
   "tier2Sources": [
     {
       "name": "remotive",
@@ -54,15 +235,7 @@
     {
       "name": "remoteok",
       "rateLimitMs": 2000
-    },
-    {
-      "name": "weworkremotely",
-      "rateLimitMs": 2000
     }
-  ],
-  "tier2WwrCategories": [
-    "remote-programming-jobs",
-    "remote-devops-sysadmin-jobs"
   ],
   "tier2CareerPages": [
     {

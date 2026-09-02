@@ -3,15 +3,17 @@ import Database from "better-sqlite3";
 import path from "path";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { spawn } from "node:child_process";
 
 import { applyMigrations } from "./db/migrate.js";
 import { transition, USER_TRIGGERABLE } from "./lib/statusMachine.js";
 import { buildTailoringPrompt } from "./lib/promptBuild.js";
 import { checkTraceability } from "./lib/traceabilityCheck.js";
 import { tailorJob } from "./lib/tailorInvoke.js";
-import { loadPreferences } from "./lib/preferences.js";
+import { renderMarkdownToPdf } from "./lib/pdfExport.js";
+import { loadPreferences, savePreferences } from "./lib/preferences.js";
 import { weightedMix } from "./lib/scoring.js";
-import { isFresh, buildAppliedIndex, isAlreadyApplied } from "./lib/jobFilter.js";
+import { isFresh, buildAppliedIndex, isAlreadyApplied, exceedsExperienceCap } from "./lib/jobFilter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +27,10 @@ const PORT = process.env.PORT || 3001;
 // scratch copy for testing. Defaults to the real file, unchanged.
 const db = new Database(process.env.JOBS_DB_PATH || path.join(__dirname, "jobs.db"));
 db.pragma("journal_mode = WAL");
+// A discovery run is a second writer on this file, started by the Refresh
+// button while the dashboard keeps serving reads. WAL allows that, but a write
+// that collides with one still fails instantly unless it is told to wait.
+db.pragma("busy_timeout = 5000");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
@@ -132,32 +138,63 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
+// Rows that still need a decision from the user — the default view.
+const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
+
 // The discovered feed. Archived rows are hidden by default (req. 31).
 //
 // Query params, all optional:
-//   sort=mix|score|recent   mix (default) interleaves buckets in your
-//                           configured location proportions; score is a flat
-//                           best-first ranking; recent is newest-first.
+//   status=active|all|<one status>
+//                           active (default) is the needs-a-decision set;
+//                           all is everything except archived.
+//   q=text                  substring match on title / company / location /
+//                           source. Runs over the whole table, not just the
+//                           rows a client happens to be holding.
+//   sort=mix|score|recent   score (default) is a flat best-first ranking; mix
+//                           interleaves buckets in your configured location
+//                           proportions; recent is newest-first.
 //   maxAgeDays=N            posted within N days; 0 disables the filter.
-//                           Defaults to preferences.maxAgeDays.
+//                           Defaults to preferences.maxAgeDays - a one-off
+//                           override for browsing, not a config edit.
 //   hideApplied=0           include roles already in your applied log.
-//   bucket=calgary          restrict to one location bucket.
+//   bucket=calgary,remote   restrict to these location buckets. Comma-
+//                           separated; omit for all of them.
 //
 // The freshness filter lives here rather than only at ingest because a row
 // ingested three days ago is stale today - the database is a log, and the feed
-// is a view over it.
+// is a view over it. (The ingest window itself is persisted to
+// preferences.json by /api/discover, so it, this default, and
+// scripts/rescore.js all agree on the same value between runs.)
 app.get("/api/discovered", (req, res) => {
   const prefs = loadPreferences();
-  const includeArchived = req.query.includeArchived === "1";
-  const hideApplied = req.query.hideApplied !== "0";
-  const sort = ["mix", "score", "recent"].includes(req.query.sort) ? req.query.sort : "mix";
+  const status = req.query.status || "active";
+  const sort = ["mix", "score", "recent"].includes(req.query.sort) ? req.query.sort : "score";
   const maxAgeDays =
     req.query.maxAgeDays === undefined ? prefs.maxAgeDays : Number(req.query.maxAgeDays);
+  // Asking to see applied or archived rows and then hiding them would empty the
+  // table out from under the request, so the narrower filter wins.
+  const hideApplied = req.query.hideApplied !== "0" && !["applied", "archived"].includes(status);
+
+  // `bucket` is a comma-separated list: the location filter is multi-select,
+  // so "Calgary + Remote" is one request rather than two.
+  const buckets = String(req.query.bucket || "")
+    .split(",")
+    .map((b) => b.trim())
+    .filter(Boolean);
 
   const where = [];
-  if (!includeArchived) where.push("status != 'archived'");
+  const params = { status };
+  if (status === "active") where.push(`status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(", ")})`);
+  else if (status === "all") where.push("status != 'archived'");
+  else where.push("status = @status");
+
   if (hideApplied) where.push("status != 'applied'");
-  if (req.query.bucket) where.push("location_bucket = @bucket");
+  if (buckets.length) {
+    // Bound as named parameters rather than interpolated — these arrive
+    // straight off the query string.
+    buckets.forEach((b, i) => (params[`bucket${i}`] = b));
+    where.push(`location_bucket IN (${buckets.map((_, i) => `@bucket${i}`).join(", ")})`);
+  }
 
   let rows = db
     .prepare(
@@ -165,9 +202,16 @@ app.get("/api/discovered", (req, res) => {
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY match_score IS NULL, match_score DESC, first_seen_at DESC, id DESC`
     )
-    .all({ bucket: req.query.bucket || null });
+    .all(params);
 
   const total = rows.length;
+
+  const q = String(req.query.q || "").trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((row) =>
+      [row.title, row.company, row.location, row.sources].join(" ").toLowerCase().includes(q)
+    );
+  }
 
   // Freshness in JS rather than SQL: posted_date arrives in whatever format
   // each board emits, and isFresh() already knows how to fall back to
@@ -175,6 +219,11 @@ app.get("/api/discovered", (req, res) => {
   if (Number.isFinite(maxAgeDays) && maxAgeDays > 0) {
     rows = rows.filter((row) => isFresh(row, { maxAgeDays }));
   }
+
+  // Same reasoning as the freshness filter above: rows ingested before this
+  // gate existed (or whose description changed since) still need to be kept
+  // out of the feed, not just future ones.
+  rows = rows.filter((row) => !exceedsExperienceCap(row));
 
   // Roles logged by hand in the applied log, which never passed through the
   // discovery flow and so still read as 'new' here.
@@ -195,6 +244,8 @@ app.get("/api/discovered", (req, res) => {
       total,
       shown: rows.length,
       sort,
+      status,
+      query: q || null,
       maxAgeDays: Number.isFinite(maxAgeDays) && maxAgeDays > 0 ? maxAgeDays : null,
       hideApplied,
       locationWeights: prefs.locationWeights,
@@ -253,16 +304,53 @@ app.post("/api/discovered/:id/status", handle((req, res) => {
   res.json(asRow(transition(db, req.params.id, to)));
 }));
 
-// req. 21-22: "Confirm & Generate". The single approval gate — task 1.0
-// established there is no second, tool-level prompt behind this one.
+// req. 21-22: the approval gate. Clicking "Tailor" on a row *is* the
+// confirmation — it names one specific posting, and nothing generates without
+// it — so the row is queued here rather than in a second preview step the user
+// has to click through. `tailorJob` still refuses anything that isn't `queued`,
+// so the state machine remains the thing enforcing it (PRD §8), not this
+// handler's good manners.
+//
+// What the removed preview used to surface — that the sanitizer scrubbed
+// injection patterns out of a posting (req. 24) — comes back in the response
+// so the caller can still show it. It must not become invisible just because
+// the screen it lived on is gone.
 app.post("/api/discovered/:id/tailor", handle(async (req, res) => {
+  const row = db.prepare("SELECT id, status FROM discovered_jobs WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Discovered job not found." });
+  if (row.status === "new") transition(db, row.id, "queued");
+
   const result = await tailorJob(db, req.params.id);
   res.status(result.ok ? 200 : 502).json({
     ok: result.ok,
     job: asRow(result.job),
     error: result.error || null,
     traceability: result.traceability || null,
+    sanitization: result.sanitization || null,
   });
+}));
+
+// The tailored draft as a file download. The dashboard hits this straight after
+// a successful generation, so "Tailor" ends with a file in the user's
+// downloads rather than in a modal they have to copy out of.
+//
+// Converted to PDF on the way out, not at generation time: application forms
+// take PDF, not the .md Claude writes, and rendering on demand means an
+// applicant who hand-edits the draft on disk still gets the current content,
+// not a stale snapshot from generation time.
+app.get("/api/discovered/:id/draft/download", handle(async (req, res) => {
+  const row = db.prepare("SELECT * FROM discovered_jobs WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Discovered job not found." });
+  if (!row.resume_path) return res.status(404).json({ error: "No tailored draft for this job yet." });
+  if (!existsSync(row.resume_path)) {
+    return res.status(410).json({ error: `Draft file is missing from disk: ${row.resume_path}` });
+  }
+  const markdown = readFileSync(row.resume_path, "utf8");
+  const pdf = await renderMarkdownToPdf(markdown);
+  const filename = `${path.basename(row.resume_path, ".md")}.pdf`;
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(pdf);
 }));
 
 // req. 23 / §6: the draft plus its flagged lines, returned together with the
@@ -364,6 +452,137 @@ app.post("/api/discovered/:id/apply", handle((req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// API — discovery runs
+// ---------------------------------------------------------------------------
+// Discovery is driven from the Refresh button in the Discovered view. It runs
+// as a child process rather than inline: a run takes minutes, drives Playwright
+// against real job boards, and writes thousands of rows. Forking keeps the
+// dashboard responsive while it works, and keeps a connector that crashes hard
+// from taking the server down with it.
+//
+// State is deliberately in-memory and single-slot. There is one user and one
+// database; a run history would be a second source of truth about what the
+// feed already shows.
+const DISCOVER_SCRIPT = path.join(__dirname, "discover.js");
+const SOURCES_CONFIG = path.join(__dirname, "config", "sources.json");
+const MAX_LOG_LINES = 400;
+
+let run = null;
+
+function startDiscoveryRun() {
+  // The freshness control is a filter on the *run*, not just on the table -
+  // the ingest gate drops a stale posting before it is ever written. Its value
+  // is persisted to preferences.json by the caller before this is invoked, so
+  // discover.js's own loadPreferences() call picks it up directly.
+  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env: process.env });
+
+  run = {
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    log: [],
+    child,
+  };
+
+  // discover.js already prints a structured run summary — the gate tolls, the
+  // insert count, the per-source failures. Streaming its stdout verbatim means
+  // the button reports exactly what the CLI did, with no second format to keep
+  // in sync.
+  const append = (chunk) => {
+    // Windows line endings arrive as "line\r"; trimEnd strips the CR while
+    // leaving the summary’s leading indentation intact.
+    for (const raw of chunk.toString().split("\n")) {
+      const line = raw.trimEnd();
+      if (line !== "") run.log.push(line);
+    }
+    if (run.log.length > MAX_LOG_LINES) run.log.splice(0, run.log.length - MAX_LOG_LINES);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+
+  child.on("error", (err) => {
+    run.status = "failed";
+    run.finishedAt = new Date().toISOString();
+    run.child = null;
+    run.log.push(`could not start discovery: ${err.message}`);
+  });
+
+  child.on("close", (code) => {
+    run.status = code === 0 ? "done" : "failed";
+    run.exitCode = code;
+    run.finishedAt = new Date().toISOString();
+    run.child = null;
+  });
+
+  return run;
+}
+
+// The child handle is not serializable, and the client has no use for it.
+const runState = () => {
+  if (!run) return { status: "idle", log: [] };
+  const { child, ...rest } = run;
+  return rest;
+};
+
+app.post("/api/discover", (req, res) => {
+  if (run?.status === "running") {
+    return res.status(409).json({ error: "A discovery run is already in progress." });
+  }
+  if (!existsSync(SOURCES_CONFIG)) {
+    return res
+      .status(400)
+      .json({ error: 'config/sources.json not found. Run "npm run bootstrap-sources" first.' });
+  }
+  // No freshness value is read from the request any more. The control saves
+  // its own choice through POST /api/preferences the moment it changes, and
+  // discover.js calls loadPreferences() itself, so the run already uses the
+  // selected window. Accepting it here as well gave two writers for one value.
+  startDiscoveryRun();
+  res.status(202).json(runState());
+});
+
+app.get("/api/discover/status", (req, res) => res.json(runState()));
+
+// The stored preferences the dashboard's controls need to render themselves.
+//
+// This exists so the freshness dropdown can be *built* from the saved value
+// instead of shipping its own default. The markup used to hard-code
+// `<option value="3" selected>`, which meant the control always booted to 3
+// days no matter what was saved — and because the Refresh button persists
+// whatever the control reads, that invented 3 overwrote the stored value on
+// every run. The number you pick is now the only number in play.
+// The only writer of the freshness window. The control persists a change the
+// moment it is made, so the value survives a page reload and the next
+// discovery run reads the same one — rather than the window being a
+// browser-session thing that a run had to be told about separately.
+app.post("/api/preferences", (req, res) => {
+  const requested = (req.body || {}).maxAgeDays;
+  if (requested === undefined) {
+    return res.status(400).json({ error: "maxAgeDays is required." });
+  }
+  const days = Number(requested);
+  if (!Number.isFinite(days) || days < 0) {
+    return res.status(400).json({ error: "maxAgeDays must be a number of days, or 0 for no limit." });
+  }
+  // 0 is the UI's "Any age"; stored as null since Infinity isn't valid JSON
+  // (loadPreferences() converts it back on read).
+  const prefs = savePreferences({ maxAgeDays: days === 0 ? null : days });
+  res.json({ maxAgeDays: Number.isFinite(prefs.maxAgeDays) ? prefs.maxAgeDays : null });
+});
+
+app.get("/api/preferences", (req, res) => {
+  const prefs = loadPreferences({ reload: true });
+  res.json({
+    // Infinity is not valid JSON; null is how "no age limit" travels, the same
+    // way it is stored (see savePreferences).
+    maxAgeDays: Number.isFinite(prefs.maxAgeDays) ? prefs.maxAgeDays : null,
+    archiveAfterDays: prefs.archiveAfterDays,
+    locationWeights: prefs.locationWeights,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // API — CSV export (every column, for spreadsheet-side analysis)
 // ---------------------------------------------------------------------------
 app.get("/api/export", (req, res) => {
@@ -389,6 +608,10 @@ app.listen(PORT, () => {
 // ---------------------------------------------------------------------------
 function shutdown(signal) {
   console.log(`\nReceived ${signal}. Flushing WAL and shutting down...`);
+
+  // Otherwise a half-finished discovery run keeps scraping, and the Playwright
+  // browsers it started outlive the server that started them.
+  if (run?.child) run.child.kill();
 
   try {
     // Force checkpoint: merge WAL into main DB

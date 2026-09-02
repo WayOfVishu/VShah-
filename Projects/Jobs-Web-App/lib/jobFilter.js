@@ -63,6 +63,44 @@ export function isExcludedBySeniority(job, prefs = loadPreferences()) {
   return matchesAny(String(job.title || ""), prefs.excludeTitleKeywords);
 }
 
+// Hardcoded rather than a preference: this is a fact about the applicant
+// (years of professional experience actually held), not a tunable search
+// preference, so it doesn't belong in preferences.json next to location
+// weights and keyword lists.
+export const EXPERIENCE_CAP_YEARS = 2;
+
+// Catches "3+ years", "3 + years", "1-2+ years", "at least 7 years" etc.
+// anywhere near the word "experience" in the description. A years-mention
+// with no "experience" nearby (e.g. "10 years in business") is left alone -
+// the window, not a stricter phrase match, is what keeps this simple.
+const YEARS_MENTION = /\b(\d+)\s*(?:-\s*(\d+)\s*)?\+?\s*years?\b(?:['’]s)?/gi;
+const EXPERIENCE_WINDOW_CHARS = 60;
+
+// Highest years-of-experience figure the posting states, or null if it states
+// none. Used both to gate ingest and to explain a rejection in the run log.
+export function maxRequiredYears(description) {
+  if (!description) return null;
+  const text = String(description);
+  let max = null;
+  let match;
+  YEARS_MENTION.lastIndex = 0;
+  while ((match = YEARS_MENTION.exec(text))) {
+    const start = Math.max(0, match.index - EXPERIENCE_WINDOW_CHARS);
+    const end = Math.min(text.length, match.index + match[0].length + EXPERIENCE_WINDOW_CHARS);
+    if (!/experience/i.test(text.slice(start, end))) continue;
+    const lo = Number(match[1]);
+    const hi = match[2] ? Number(match[2]) : lo;
+    const years = Math.max(lo, hi);
+    if (max === null || years > max) max = years;
+  }
+  return max;
+}
+
+export function exceedsExperienceCap(job, capYears = EXPERIENCE_CAP_YEARS) {
+  const years = maxRequiredYears(job.description);
+  return years !== null && years > capYears;
+}
+
 // The single decision point for `npm run discover`. Returns a reason string on
 // rejection instead of a bare false, so the run summary can report *why* 2900
 // postings became 40 rather than leaving it a mystery.
@@ -75,6 +113,9 @@ export function ingestGate(job, prefs = loadPreferences(), now = new Date()) {
   }
   if (!matchesRole(job, prefs)) {
     return { keep: false, reason: "off-role" };
+  }
+  if (exceedsExperienceCap(job)) {
+    return { keep: false, reason: "experience" };
   }
 
   const bucket = locationBucket(job, prefs);

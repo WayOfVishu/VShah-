@@ -121,6 +121,100 @@ export function normalizeWeWorkRemotely(job) {
   };
 }
 
+// Several boards report remote in the location string rather than a flag, and
+// they do not agree on the word. BMO's Workday board says
+// "REMOTE/TELETRAVAIL, ON, CAN" on a bilingual posting.
+const REMOTE_TEXT = /\bremote\b|t[ée]l[ée]travail|work from home|anywhere in canada/i;
+
+// Recruitee stamps dates as "2026-08-26 06:19:46 UTC", which Date() will not
+// parse. Everything downstream expects ISO 8601.
+function isoFromUtcStamp(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const d = new Date(/UTC$/i.test(text) ? text.replace(/\s+UTC$/i, "Z").replace(" ", "T") : text);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+export function normalizeWorkday(job, company) {
+  // The list endpoint says "3 Locations" for a multi-city posting; the detail
+  // pass replaces that with the real one when it ran.
+  const location = job.__location || job.locationsText || null;
+  return {
+    // bulletFields carries the requisition id (R0017705), which is stable
+    // across re-postings in a way the URL path is not.
+    job_id: String(job.bulletFields?.[0] || job.externalPath || job.title),
+    source: "workday",
+    title: job.title,
+    company: job.__company || company,
+    location: /^\d+\s+Locations?$/i.test(location || "") ? null : location,
+    salary: null,
+    description: stripHtml(job.__description),
+    apply_url: job.__applyUrl,
+    // startDate is a real ISO date from the detail pass; __postedDate is
+    // parsed back out of "Posted 3 Days Ago" when only the list ran.
+    posted_date: job.__startDate || job.__postedDate || null,
+    remote_status: REMOTE_TEXT.test(location || "") ? "remote" : null,
+  };
+}
+
+export function normalizeWorkable(job, company) {
+  const first = job.locations?.[0];
+  const location =
+    [job.city || first?.city, job.state || first?.region, job.country || first?.country]
+      .filter(Boolean)
+      .join(", ") || null;
+  return {
+    job_id: String(job.shortcode || job.id),
+    source: "workable",
+    title: job.title,
+    company: job.__company || company,
+    location,
+    salary: null,
+    description: stripHtml(job.description),
+    apply_url: job.application_url || job.url || job.shortlink,
+    posted_date: job.published_on || job.created_at || null,
+    remote_status: job.telecommuting || REMOTE_TEXT.test(location || "") ? "remote" : null,
+  };
+}
+
+export function normalizeRecruitee(job, company) {
+  const location =
+    job.location || [job.city, job.state_name, job.country].filter(Boolean).join(", ") || null;
+  // Recruitee splits the posting body across two fields and boards use them
+  // inconsistently; the experience cap needs to see both.
+  const body = [job.description, job.requirements].filter(Boolean).join(" ");
+  return {
+    job_id: String(job.id),
+    source: "recruitee",
+    title: job.title,
+    company: job.__company || job.company_name || company,
+    location,
+    salary: job.salary?.min ? `${job.salary.min}-${job.salary.max ?? ""} ${job.salary.currency ?? ""}`.trim() : null,
+    description: stripHtml(body),
+    apply_url: job.careers_apply_url || job.careers_url,
+    posted_date: isoFromUtcStamp(job.published_at || job.created_at),
+    // The one board here that states remote as a boolean instead of leaving it
+    // to be regexed out of a location string.
+    remote_status: job.remote ? "remote" : null,
+  };
+}
+
+export function normalizeBambooHR(job, company) {
+  const location = [job.location?.city, job.location?.state].filter(Boolean).join(", ") || null;
+  return {
+    job_id: String(job.id),
+    source: "bamboohr",
+    title: job.jobOpeningName,
+    company: job.__company || company,
+    location,
+    salary: null,
+    description: stripHtml(job.__description),
+    apply_url: job.__applyUrl,
+    posted_date: job.__datePosted || null,
+    remote_status: job.isRemote || REMOTE_TEXT.test(location || "") ? "remote" : null,
+  };
+}
+
 export function normalizeCareerPage(job, fallbackCompany) {
   const address = job.jobLocation?.address;
   const location = address
@@ -152,6 +246,10 @@ const NORMALIZERS = {
   greenhouse: normalizeGreenhouse,
   lever: normalizeLever,
   ashby: normalizeAshby,
+  workday: normalizeWorkday,
+  workable: normalizeWorkable,
+  recruitee: normalizeRecruitee,
+  bamboohr: normalizeBambooHR,
   remotive: normalizeRemotive,
   remoteok: normalizeRemoteOK,
   weworkremotely: normalizeWeWorkRemotely,

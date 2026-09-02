@@ -9,6 +9,7 @@
 //     or Vancouver role still surfaces instead of being buried under Calgary.
 
 import { loadPreferences } from "./preferences.js";
+import { isTrulyRemote } from "./remote.js";
 
 // Each bucket's patterns are tried against the location string and, for
 // `remote`, the connector's remote_status flag.
@@ -23,12 +24,33 @@ const BUCKET_PATTERNS = {
   remote: [/\bremote\b/i, /\bwork from home\b/i, /\banywhere\b/i, /\bdistributed\b/i, /\btelecommute\b/i],
 };
 
-const US_RESTRICTED = /\b(?:us|u\.s\.|usa|united states)[\s-]*(?:only|based|residents?|citizens?)\b|\bmust be (?:located|based) in the (?:us|united states)\b/i;
+// "US" is matched case-sensitively throughout. Lowercase "us" is the English
+// pronoun, and matching it case-insensitively made "Build things with us" read
+// as a US work-authorization restriction. "United States" is safe either way.
+const US_ABBR = "(?:U\\.S\\.A?|USA?)";
+const US_RESTRICTED = new RegExp(
+  `\\b(?:${US_ABBR}|[Uu]nited [Ss]tates)[\\s-]*(?:only|based|residents?|citizens?)\\b` +
+    `|\\bmust be (?:located|based) in the (?:${US_ABBR}|[Uu]nited [Ss]tates)\\b`
+);
 const SPONSORSHIP_MENTION = /\b(?:sponsor\w*|visa|work(?:ing)? authorization|work permit|h-?1b|tn visa|relocation (?:support|assistance))\b/i;
 
-// A US state code or name, used only to decide whether a posting is
-// US-restricted for work-authorization purposes.
-const US_LOCATION = /\b(?:wa|or|ca|ny|tx|ma|il|co|az|nv|ut|ga|fl|nc|va|md|pa|nj|oh|mi|mn|wi)\b|\bunited states\b|\busa\b/i;
+// A US state, used only to decide whether a posting is US-restricted for
+// work-authorization purposes.
+//
+// Two-letter codes count only in the "City, ST" shape and only capitalised.
+// Matched loosely, they are a minefield: `\bor\b` made the word "or" into
+// Oregon, so "Remote or Hybrid" was a US posting, and `\bca\b` made the
+// Canadian country code into California, so "Vancouver, BC, CA" was too —
+// both penalising exactly the Canadian remote roles that matter most here.
+// CA is therefore left out of the code list entirely and California is matched
+// by name.
+const US_STATE_CODES =
+  "AL|AK|AZ|AR|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY";
+const US_STATE_NAMES =
+  "California|Colorado|Texas|New York|Washington|Oregon|Illinois|Massachusetts|Florida|Georgia|Arizona|Nevada|Utah|Virginia|Maryland|Pennsylvania|New Jersey|Ohio|Michigan|Minnesota|Wisconsin|North Carolina";
+const US_LOCATION = new RegExp(
+  `,\\s*(?:${US_STATE_CODES})\\b|\\b(?:${US_STATE_NAMES})\\b|\\bUnited States\\b|\\bUSA\\b`
+);
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -56,12 +78,16 @@ export function matchesAny(haystack, phrases = []) {
 // "unknown" when no location is stated at all.
 export function locationBucket(job, prefs = loadPreferences()) {
   const text = [job.location, job.remote_status].filter(Boolean).join(" ").trim();
-  const isRemoteFlagged = String(job.remote_status || "").toLowerCase() === "remote";
 
   if (!text) return "unknown";
 
   const matched = Object.keys(prefs.locationWeights).filter((bucket) => {
-    if (bucket === "remote" && isRemoteFlagged) return true;
+    // The remote bucket is the one that cannot be decided from the location
+    // string. A posting saying "Remote" may be US-only (a TN visa problem) or
+    // hybrid-in-another-city (a relocation problem); either way it is not a
+    // remote job *he can take*, so the description gets the deciding vote.
+    // See lib/remote.js.
+    if (bucket === "remote") return isTrulyRemote(job);
     return (BUCKET_PATTERNS[bucket] || []).some((re) => re.test(text));
   });
 

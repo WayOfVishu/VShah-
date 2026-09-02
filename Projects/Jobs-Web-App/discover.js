@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// CLI entry point: `npm run discover` (PRD req. 13-16).
+// Discovery run (PRD req. 13-16). Started as a child process by the Refresh
+// button in the Discovered view; still runnable directly as `node discover.js`.
 // Orchestrates Tier 1 + Tier 2 connectors, normalizes, dedups, inserts new
 // discovered_jobs rows, prints a run summary, and sweeps stale rows into
 // `archived`. No OS-level scheduler triggers this — the user runs it by hand.
+// stdout is what the dashboard shows as the run log, so the summary below is
+// user-facing output, not debug logging.
 
 import Database from "better-sqlite3";
 import path from "node:path";
@@ -16,12 +19,24 @@ import * as remotive from "./connectors/remotive.js";
 import * as remoteok from "./connectors/remoteok.js";
 import * as weworkremotely from "./connectors/weworkremotely.js";
 import * as careerpage from "./connectors/careerpage.js";
+import * as workday from "./connectors/workday.js";
+import * as workable from "./connectors/workable.js";
+import * as recruitee from "./connectors/recruitee.js";
+import * as bamboohr from "./connectors/bamboohr.js";
 import { normalize } from "./lib/normalize.js";
 import { buildDedupIndex, findDuplicate, addToIndex } from "./lib/dedup.js";
 import { recordSourceSuccess, recordSourceFailure } from "./lib/sourceHealth.js";
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { loadPreferences } from "./lib/preferences.js";
-import { ingestGate, buildAppliedIndex, isAlreadyApplied } from "./lib/jobFilter.js";
+import { rescoreRows, activeCount } from "./lib/rescore.js";
+import {
+  ingestGate,
+  buildAppliedIndex,
+  isAlreadyApplied,
+  matchesRole,
+  isExcludedBySeniority,
+  EXPERIENCE_CAP_YEARS,
+} from "./lib/jobFilter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // One SQLite file for the whole app: server.js and this CLI are two entry
@@ -29,11 +44,57 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // a scratch copy.
 const DB_PATH = process.env.JOBS_DB_PATH || path.join(__dirname, "jobs.db");
 const CONFIG_PATH = path.join(__dirname, "config", "sources.json");
-const ARCHIVE_AFTER_DAYS = 60;
 const DEFAULT_TIER2_RATE_LIMIT_MS = 2000;
+// How many boards to fetch at once. They are all different hosts and the rate
+// limiter is per-host, so this costs no single employer any extra traffic — it
+// only stops the run from idling while one board's throttle counts down.
+const BOARD_CONCURRENCY = 6;
 
-const TIER1_CONNECTORS = { greenhouse, lever, ashby };
+// Two connector shapes, because two kinds of board.
+//
+// A slug board is addressed by one string and hands back its whole contents in
+// one request: fetchPostings("stackadapt").
+//
+// An entry board needs more than a slug (Workday wants tenant + host + site),
+// or has to be searched rather than listed, or withholds descriptions until a
+// second request. Those take the whole config entry plus the shared throttle:
+// fetchPostings(entry, opts).
+const SLUG_CONNECTORS = { greenhouse, lever, ashby };
+const ENTRY_CONNECTORS = { workday, workable, recruitee, bamboohr };
 const rateLimiter = createRateLimiter();
+
+// Which postings are worth a second request for their description.
+//
+// Workday's list endpoint and BambooHR's both omit the body, and the ingest
+// gate's experience cap needs it. Fetching every posting's detail would mean
+// ~900 requests against BMO alone to keep a handful. The title-level gates —
+// role match and seniority exclusion — are the same ones ingestGate applies
+// first and need no description, so running them here decides the question
+// before we spend the request.
+// Runs `fn` over `items` with at most `size` in flight.
+//
+// Boards are fetched concurrently because they are different hosts, and the
+// rate limiter throttles per host — so two boards never wait on each other,
+// and running them one after another spent the entire wall clock idle. `fn`
+// returns a thunk that performs the (synchronous) database work, which the
+// caller invokes in completion order: fetches overlap, writes do not.
+async function mapPool(items, size, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (i < items.length) {
+      const commit = await fn(items[i++]);
+      if (typeof commit === "function") commit();
+    }
+  });
+  await Promise.all(workers);
+}
+
+function makeDetailPredicate(prefs) {
+  return (rawJob) => {
+    const title = rawJob.title || rawJob.jobOpeningName || "";
+    return matchesRole({ title }, prefs) && !isExcludedBySeniority({ title }, prefs);
+  };
+}
 
 function upsertSourcesList(existingSourcesJson, sourceName) {
   const list = JSON.parse(existingSourcesJson);
@@ -98,25 +159,52 @@ function makeIngestor(db, summary, prefs) {
   };
 }
 
-async function runTier1(config, db, ingest, summary) {
-  for (const entry of config.tier1Watchlist || []) {
-    const connector = TIER1_CONNECTORS[entry.platform];
-    if (!connector) {
-      console.warn(`  skipping unknown platform "${entry.platform}" for ${entry.name}`);
-      continue;
-    }
+async function runTier1(config, db, ingest, summary, prefs) {
+  const shouldFetchDetail = makeDetailPredicate(prefs);
+  // Workday is searched, not listed, so it needs the search terms. Reusing
+  // roleKeywords rather than tier2Keywords keeps one list as the definition of
+  // "a role I would take" across the whole run.
+  const keywords = config.tier1SearchKeywords || prefs.roleKeywords || [];
+
+  const boards = (config.tier1Watchlist || []).filter((entry) => {
+    if (SLUG_CONNECTORS[entry.platform] || ENTRY_CONNECTORS[entry.platform]) return true;
+    console.warn(`  skipping unknown platform "${entry.platform}" for ${entry.name}`);
+    return false;
+  });
+
+  let done = 0;
+  await mapPool(boards, BOARD_CONCURRENCY, async (entry) => {
+    const slugConnector = SLUG_CONNECTORS[entry.platform];
+    const entryConnector = ENTRY_CONNECTORS[entry.platform];
+    const startedAt = Date.now();
     try {
-      const raw = await connector.fetchPostings(entry.slug);
-      recordSourceSuccess(db, entry.name);
-      summary.fetched += raw.length;
-      for (const rawJob of raw) {
-        ingest(normalize(entry.platform, rawJob, entry.name));
-      }
+      const raw = slugConnector
+        ? await slugConnector.fetchPostings(entry.slug)
+        : await entryConnector.fetchPostings(entry, {
+            throttledFetch: rateLimiter.throttledFetch,
+            rateLimitMs: entry.rateLimitMs || DEFAULT_TIER2_RATE_LIMIT_MS,
+            keywords,
+            shouldFetchDetail,
+          });
+      const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+      // Returned rather than run here: the caller invokes it in completion
+      // order, so the synchronous database writes never interleave.
+      return () => {
+        recordSourceSuccess(db, entry.name);
+        summary.fetched += raw.length;
+        for (const rawJob of raw) ingest(normalize(entry.platform, rawJob, entry.name));
+        // Per-board progress. A run over 29 boards is minutes long, and a
+        // silent log for all of it is indistinguishable from a hang.
+        console.log(`  [${++done}/${boards.length}] ${entry.name}: ${raw.length} postings (${secs}s)`);
+      };
     } catch (err) {
-      const { status } = recordSourceFailure(db, entry.name);
-      summary.failures.push({ source: entry.name, status, error: err.message });
+      return () => {
+        const { status } = recordSourceFailure(db, entry.name);
+        summary.failures.push({ source: entry.name, status, error: err.message });
+        console.log(`  [${++done}/${boards.length}] ${entry.name}: FAILED — ${err.message}`);
+      };
     }
-  }
+  });
 }
 
 async function runTier2(config, db, ingest, summary) {
@@ -124,8 +212,14 @@ async function runTier2(config, db, ingest, summary) {
   const sourceRateLimit = (name) =>
     (config.tier2Sources || []).find((s) => s.name === name)?.rateLimitMs || DEFAULT_TIER2_RATE_LIMIT_MS;
 
+  // `tier2Sources` is the list of sources to actually run, not just a table of
+  // rate limits. It used to be only the latter — every source below ran
+  // unconditionally, so deleting one from the config changed its throttle and
+  // nothing else, and the file quietly lied about what a run would do.
+  const enabled = (name) => (config.tier2Sources || []).some((s) => s.name === name);
+
   // --- Remotive: one request per keyword (its API only supports single-term search) ---
-  for (const keyword of keywords) {
+  for (const keyword of enabled("remotive") ? keywords : []) {
     try {
       const raw = await remotive.fetchPostings(keyword, {
         throttledFetch: rateLimiter.throttledFetch,
@@ -141,31 +235,39 @@ async function runTier2(config, db, ingest, summary) {
   }
 
   // --- RemoteOK: one request total, filtered locally against all keywords ---
-  try {
-    const raw = await remoteok.fetchPostings(keywords, {
-      throttledFetch: rateLimiter.throttledFetch,
-      rateLimitMs: sourceRateLimit("remoteok"),
-    });
-    recordSourceSuccess(db, "remoteok");
-    summary.fetched += raw.length;
-    for (const rawJob of raw) ingest(normalize("remoteok", rawJob));
-  } catch (err) {
-    const { status } = recordSourceFailure(db, "remoteok");
-    summary.failures.push({ source: "remoteok", status, error: err.message });
+  if (enabled("remoteok")) {
+    try {
+      const raw = await remoteok.fetchPostings(keywords, {
+        throttledFetch: rateLimiter.throttledFetch,
+        rateLimitMs: sourceRateLimit("remoteok"),
+      });
+      recordSourceSuccess(db, "remoteok");
+      summary.fetched += raw.length;
+      for (const rawJob of raw) ingest(normalize("remoteok", rawJob));
+    } catch (err) {
+      const { status } = recordSourceFailure(db, "remoteok");
+      summary.failures.push({ source: "remoteok", status, error: err.message });
+    }
   }
 
   // --- WeWorkRemotely: category RSS feeds ---
-  try {
-    const raw = await weworkremotely.fetchPostings(config.tier2WwrCategories, {
-      throttledFetch: rateLimiter.throttledFetch,
-      rateLimitMs: sourceRateLimit("weworkremotely"),
-    });
-    recordSourceSuccess(db, "weworkremotely");
-    summary.fetched += raw.length;
-    for (const rawJob of raw) ingest(normalize("weworkremotely", rawJob));
-  } catch (err) {
-    const { status } = recordSourceFailure(db, "weworkremotely");
-    summary.failures.push({ source: "weworkremotely", status, error: err.message });
+  // Off by default: WeWorkRemotely charges the applicant to apply, so its
+  // postings cost you money to act on. The connector is kept because nothing
+  // is wrong with it — re-add { "name": "weworkremotely" } to tier2Sources to
+  // turn it back on.
+  if (enabled("weworkremotely")) {
+    try {
+      const raw = await weworkremotely.fetchPostings(config.tier2WwrCategories, {
+        throttledFetch: rateLimiter.throttledFetch,
+        rateLimitMs: sourceRateLimit("weworkremotely"),
+      });
+      recordSourceSuccess(db, "weworkremotely");
+      summary.fetched += raw.length;
+      for (const rawJob of raw) ingest(normalize("weworkremotely", rawJob));
+    } catch (err) {
+      const { status } = recordSourceFailure(db, "weworkremotely");
+      summary.failures.push({ source: "weworkremotely", status, error: err.message });
+    }
   }
 
   // --- Career pages: schema.org JobPosting via Playwright (req. 3-4) ---
@@ -182,13 +284,15 @@ async function runTier2(config, db, ingest, summary) {
   }
 }
 
-function archiveStaleRows(db) {
+function archiveStaleRows(db, prefs) {
+  const days = prefs.archiveAfterDays;
+  if (!Number.isFinite(days) || days <= 0) return 0; // no sweep configured
   const info = db
     .prepare(
       `UPDATE discovered_jobs SET status = 'archived'
        WHERE status = 'new' AND first_seen_at < datetime('now', ?)`
     )
-    .run(`-${ARCHIVE_AFTER_DAYS} days`);
+    .run(`-${days} days`);
   return info.changes;
 }
 
@@ -201,25 +305,53 @@ async function main() {
 
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
+  // The dashboard is serving reads off this same file while this run writes
+  // to it — the Refresh button starts this process from inside the server.
+  db.pragma("busy_timeout = 5000");
   applyMigrations(db);
 
+  // The dashboard's "Posted ≤ N days" control writes straight into
+  // preferences.json (see /api/discover in server.js) before this process is
+  // spawned, so the ingest window here is always whatever Refresh was last
+  // run with - the same value the live view and rescore.js fall back to.
   const prefs = loadPreferences();
+  const ageLabel = prefs.maxAgeDays === Infinity ? "any age" : `posted within ${prefs.maxAgeDays}d`;
+
   const summary = { fetched: 0, duplicates: 0, inserted: 0, rejected: {}, failures: [] };
   const ingest = makeIngestor(db, summary, prefs);
 
   console.log(
-    `Filters: posted within ${prefs.maxAgeDays}d · ` +
+    `Filters: ${ageLabel} · ` +
       `${Object.entries(prefs.locationWeights).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" / ")} · ` +
       `off-list locations ${prefs.offListLocations === "drop" ? "dropped" : "kept"}`
   );
 
-  console.log("Running Tier 1 discovery (Greenhouse / Lever / Ashby)...");
-  await runTier1(config, db, ingest, summary);
+  const platforms = [...new Set((config.tier1Watchlist || []).map((e) => e.platform))].sort();
+  console.log(
+    `Running Tier 1 discovery over ${(config.tier1Watchlist || []).length} boards ` +
+      `(${platforms.join(" / ") || "none configured"})...`
+  );
+  await runTier1(config, db, ingest, summary, prefs);
 
-  console.log("Running Tier 2 discovery (Remotive / RemoteOK / WeWorkRemotely / career pages)...");
+  // Named from the config rather than a fixed string, so turning a source off
+  // is visible in the run log instead of the log still claiming it ran.
+  const tier2Names = [
+    ...(config.tier2Sources || []).map((s) => s.name),
+    ...((config.tier2CareerPages || []).length ? ["career pages"] : []),
+  ];
+  console.log(`Running Tier 2 discovery (${tier2Names.join(" / ") || "none configured"})...`);
   await runTier2(config, db, ingest, summary);
 
-  const archived = archiveStaleRows(db);
+  // Phase two: re-judge rows that were already here under the preferences in
+  // force *now*. Finding new postings is only half of what "Refresh" should
+  // mean — if you widened the freshness window, the postings it now admits are
+  // mostly ones already sitting in the database as `archived`, and no amount
+  // of fetching would bring them back. This is what used to be the separate
+  // `node scripts/rescore.js` chore.
+  console.log("Re-applying your filters to postings already saved...");
+  const rescored = rescoreRows(db, prefs);
+
+  const archived = archiveStaleRows(db, prefs);
 
   console.log("\n=== Run summary ===");
   console.log(`  Postings fetched:   ${summary.fetched}`);
@@ -229,9 +361,10 @@ async function main() {
   // keyword list that is too narrow is distinguishable from a location list
   // that is too narrow.
   const REJECT_LABELS = {
-    stale: `older than ${prefs.maxAgeDays}d`,
+    stale: `older than ${prefs.maxAgeDays === Infinity ? "the age limit" : `${prefs.maxAgeDays}d`}`,
     "off-role": "title matched no role keyword",
     seniority: "senior / staff / intern title",
+    experience: `asks for more than ${EXPERIENCE_CAP_YEARS} years' experience`,
     "off-location": "location off your list",
     applied: "already in your applied log",
   };
@@ -243,7 +376,15 @@ async function main() {
 
   console.log(`  Duplicates merged:  ${summary.duplicates}`);
   console.log(`  New postings saved: ${summary.inserted}`);
-  console.log(`  Archived (60d+ stale): ${archived}`);
+
+  // The rescore's own tally. "Brought back" is the one to watch after widening
+  // a filter: it is postings that were already found and had been archived
+  // under the old setting.
+  console.log(`  Re-checked existing: ${rescored.scored}`);
+  if (rescored.restored > 0) console.log(`    - brought back into the feed: ${rescored.restored}`);
+  if (rescored.archived > 0) console.log(`    - archived (no longer match): ${rescored.archived}`);
+  console.log(`  Archived (${prefs.archiveAfterDays}d+ in feed): ${archived}`);
+  console.log(`  Active feed now:    ${activeCount(db)}`);
   if (summary.failures.length > 0) {
     console.log(`  Source failures:`);
     for (const f of summary.failures) {

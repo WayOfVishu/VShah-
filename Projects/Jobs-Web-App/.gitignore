@@ -12,3 +12,9 @@ jobs.db-shm
 # Your real resume and every generated draft. Personal data — deliberately
 # untracked, carried over from the old Job-Board-Scraping .gitignore.
 resume/
+
+# Database backups. Snapshots of a mutable binary do not belong in version
+# control: they cannot be diffed or merged, they are redundant with git's own
+# history of jobs.db, and at ~26MB each they were the largest thing in the
+# repo. The files stay on disk — this only stops them being committed.
+jobs.db.bak-*

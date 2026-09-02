@@ -7,6 +7,13 @@ const dEls = {
   discoveredView: document.getElementById("discoveredView"),
   count: document.getElementById("discoveredCount"),
 
+  refresh: document.getElementById("refreshDiscovery"),
+  refreshLabel: document.getElementById("refreshLabel"),
+  runPanel: document.getElementById("runPanel"),
+  runStatus: document.getElementById("runStatus"),
+  runLog: document.getElementById("runLog"),
+  toggleRunLog: document.getElementById("toggleRunLog"),
+
   banner: document.getElementById("sourceBanner"),
   bannerText: document.getElementById("sourceBannerText"),
   dismissBanner: document.getElementById("dismissBanner"),
@@ -17,21 +24,14 @@ const dEls = {
   sortMode: document.getElementById("sortMode"),
   freshness: document.getElementById("freshness"),
   bucketFilter: document.getElementById("bucketFilter"),
+  bucketToggle: document.getElementById("bucketToggle"),
+  bucketPanel: document.getElementById("bucketPanel"),
+  bucketLabel: document.getElementById("bucketLabel"),
   hideApplied: document.getElementById("hideApplied"),
   mixSummary: document.getElementById("mixSummary"),
   summary: document.getElementById("discoveredSummary"),
   empty: document.getElementById("discoveredEmpty"),
   loadMore: document.getElementById("loadMore"),
-
-  tailorModal: document.getElementById("tailorModal"),
-  tailorJobLine: document.getElementById("tailorJobLine"),
-  injectionNotice: document.getElementById("injectionNotice"),
-  injectionRules: document.getElementById("injectionRules"),
-  htmlNotice: document.getElementById("htmlNotice"),
-  outputPathText: document.getElementById("outputPathText"),
-  promptPreview: document.getElementById("promptPreview"),
-  tailorStatus: document.getElementById("tailorStatus"),
-  confirmGenerate: document.getElementById("confirmGenerate"),
 
   draftModal: document.getElementById("draftModal"),
   draftPathLine: document.getElementById("draftPathLine"),
@@ -43,6 +43,7 @@ const dEls = {
   baseResumeText: document.getElementById("baseResumeText"),
   draftStatus: document.getElementById("draftStatus"),
   markAppliedFromDraft: document.getElementById("markAppliedFromDraft"),
+  downloadFromDraft: document.getElementById("downloadFromDraft"),
 };
 
 // PRD Goal 7: uncapped discovery must not become a wall of rows. The live run
@@ -123,23 +124,160 @@ dEls.tabs.forEach((tab) => {
 });
 
 // ---------------------------------------------------------------------------
+// The freshness control
+// ---------------------------------------------------------------------------
+// One number governs how far back the app looks, and this control is where it
+// is chosen. It is used in three places — the on-screen filter, the ingest
+// window of the next discovery run, and what gets saved to preferences.json —
+// and all three now read the same value from here.
+//
+// The windows on offer. 0 means no limit; the saved value is added to this
+// list if it is not already one of them, so a hand-edited preferences.json
+// still shows up correctly rather than silently resetting.
+const FRESHNESS_WINDOWS = [3, 7, 14];
+
+function freshnessLabelFor(days) {
+  return days === 0 ? "Any age" : `Posted ≤ ${days} days`;
+}
+
+// Builds the dropdown from the saved preference. Nothing here invents a
+// default: whatever is stored is what gets selected, and if the server cannot
+// be reached the control still renders so the page is usable.
+// Which location buckets the feed is restricted to. Empty means all of them.
+const selectedBuckets = new Set();
+
+// Builds the location checkboxes from the buckets that actually exist in
+// preferences.json, rather than a second hard-coded list in the markup — the
+// same reason the freshness options are built rather than written out. Drop a
+// location from your weights and it disappears from here too.
+function buildBucketFilter(locationWeights = {}) {
+  const names = Object.keys(locationWeights);
+  dEls.bucketPanel.replaceChildren(
+    ...names.map((bucket) => {
+      const label = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = bucket;
+      box.addEventListener("change", () => {
+        if (box.checked) selectedBuckets.add(bucket);
+        else selectedBuckets.delete(bucket);
+        renderBucketLabel();
+        visibleCount = PAGE_SIZE;
+        loadDiscovered();
+      });
+      label.append(box, document.createTextNode(BUCKET_LABELS[bucket] || bucket));
+      return label;
+    })
+  );
+
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "multi-select-clear";
+  clear.textContent = "All locations";
+  clear.addEventListener("click", () => {
+    selectedBuckets.clear();
+    dEls.bucketPanel.querySelectorAll("input").forEach((i) => (i.checked = false));
+    renderBucketLabel();
+    visibleCount = PAGE_SIZE;
+    loadDiscovered();
+  });
+  dEls.bucketPanel.append(clear);
+  renderBucketLabel();
+}
+
+function renderBucketLabel() {
+  const chosen = [...selectedBuckets].map((b) => BUCKET_LABELS[b] || b);
+  const text = chosen.length === 0 ? "All locations" : chosen.join(", ");
+  dEls.bucketLabel.textContent = text;
+  // The button truncates with an ellipsis, so the full selection lives in the
+  // tooltip rather than being lost.
+  dEls.bucketToggle.title = chosen.length ? `Locations: ${text}` : "All locations";
+}
+
+const setBucketPanelOpen = (open) => {
+  dEls.bucketPanel.hidden = !open;
+  dEls.bucketToggle.setAttribute("aria-expanded", String(open));
+};
+
+dEls.bucketToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setBucketPanelOpen(dEls.bucketPanel.hidden);
+});
+// Clicking inside the panel must not close it — every click in there is a
+// checkbox the user is still working through.
+dEls.bucketPanel.addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => setBucketPanelOpen(false));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") setBucketPanelOpen(false);
+});
+
+// Whether the saved preferences were actually read. If they were not, the
+// freshness control is showing a fallback rather than the user's choice, and
+// must not be allowed to write that fallback back to disk — a momentarily
+// unreachable server would otherwise turn into a silently changed setting the
+// next time any control moved.
+let prefsLoaded = false;
+
+async function initControls() {
+  let saved = null;
+  let locationWeights = {};
+  try {
+    ({ maxAgeDays: saved, locationWeights = {} } = await api("/api/preferences"));
+    prefsLoaded = true;
+  } catch {
+    // Leave `saved` null — "Any age" — rather than guessing a window and
+    // hiding postings the user never asked to hide.
+  }
+  buildBucketFilter(locationWeights);
+  const selected = saved === null ? 0 : Number(saved);
+  const windows = FRESHNESS_WINDOWS.includes(selected) || selected === 0
+    ? FRESHNESS_WINDOWS
+    : [...FRESHNESS_WINDOWS, selected].sort((a, b) => a - b);
+
+  dEls.freshness.replaceChildren(
+    ...[...windows, 0].map((days) => {
+      const opt = document.createElement("option");
+      opt.value = String(days);
+      opt.textContent = freshnessLabelFor(days);
+      opt.selected = days === selected;
+      return opt;
+    })
+  );
+}
+
+// Started at load rather than when the Discovered tab is first opened, so the
+// controls are already showing the saved window and locations by the time
+// anyone looks at them. loadDiscovered() awaits it, so no request can go out
+// reading an unpopulated control — which would send an empty maxAgeDays and
+// silently mean "any age".
+const controlsReady = initControls();
+
+// ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
-async function loadDiscovered() {
-  try {
-    // Archived rows are hidden by default (req. 31); only fetched when asked for.
-    const params = new URLSearchParams({
-      includeArchived: dEls.statusFilter.value === "archived" ? "1" : "0",
-      sort: dEls.sortMode.value,
-      maxAgeDays: dEls.freshness.value,
-      hideApplied: dEls.hideApplied.checked ? "1" : "0",
-    });
-    // Looking specifically at applied or archived rows means the "hide applied"
-    // default would empty the table out from under you.
-    if (["applied", "archived"].includes(dEls.statusFilter.value)) params.set("hideApplied", "0");
-    if (dEls.bucketFilter.value) params.set("bucket", dEls.bucketFilter.value);
+// Every control in the filter bar is a query parameter — status and the search
+// box included. They used to be re-filtered in the browser over whatever the
+// server had already sent, which meant the two could disagree about how many
+// rows existed and the summary line counted the wrong thing.
+function currentQuery() {
+  const params = new URLSearchParams({
+    status: dEls.statusFilter.value,
+    sort: dEls.sortMode.value,
+    maxAgeDays: dEls.freshness.value,
+    hideApplied: dEls.hideApplied.checked ? "1" : "0",
+  });
+  // Comma-separated so several locations can be viewed at once; the server
+  // turns it back into an IN (...) clause.
+  if (selectedBuckets.size) params.set("bucket", [...selectedBuckets].join(","));
+  const q = dEls.search.value.trim();
+  if (q) params.set("q", q);
+  return params;
+}
 
-    const payload = await api(`/api/discovered?${params}`);
+async function loadDiscovered() {
+  await controlsReady;
+  try {
+    const payload = await api(`/api/discovered?${currentQuery()}`);
     discovered = payload.jobs;
     feedMeta = payload.meta;
     visibleCount = PAGE_SIZE;
@@ -187,34 +325,142 @@ dEls.dismissBanner.addEventListener("click", () => {
   dEls.banner.hidden = true;
 });
 
-// Sorting, freshness, bucket and hide-applied are all applied server-side, so
-// each needs a refetch rather than a re-render.
-[dEls.sortMode, dEls.freshness, dEls.bucketFilter, dEls.hideApplied].forEach((el) =>
-  el.addEventListener("change", loadDiscovered)
-);
+// Sorting and hide-applied are applied server-side, so each needs a refetch
+// rather than a re-render. (The location filter is not a <select> any more —
+// its checkboxes refetch themselves; see buildBucketFilter.)
+[dEls.sortMode, dEls.hideApplied].forEach((el) => el.addEventListener("change", loadDiscovered));
+
+// Freshness is the one control that outlives the page. Saving it on change is
+// what makes the window you picked the window the next discovery run ingests
+// with, and the one still selected after a reload.
+dEls.freshness.addEventListener("change", async () => {
+  if (!prefsLoaded) {
+    // Filter the view, but do not persist: this control never learned what the
+    // saved window was, so writing its value would overwrite a real setting
+    // with a fallback.
+    showToast("Preferences could not be loaded — this filter applies to the view only.", { type: "error" });
+    await loadDiscovered();
+    return;
+  }
+  try {
+    await api("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maxAgeDays: Number(dEls.freshness.value) }),
+    });
+  } catch (err) {
+    // Saving failed, but the filter should still apply to what is on screen.
+    showToast(`Could not save the freshness window: ${err.message}`, { type: "error" });
+  }
+  await loadDiscovered();
+});
+
+// ---------------------------------------------------------------------------
+// Discovery runs
+// ---------------------------------------------------------------------------
+// The server runs discovery in a child process and holds the run state, so this
+// is a poller, not an owner: on load it adopts whatever run is already in
+// flight. A reload mid-run rejoins it instead of appearing to have lost it, and
+// a second tab shows the same run rather than starting a competing one.
+const POLL_MS = 1500;
+let pollTimer = null;
+
+function renderRun(state) {
+  if (state.status === "idle") {
+    dEls.runPanel.hidden = true;
+    return;
+  }
+  dEls.runPanel.hidden = false;
+  dEls.runPanel.classList.toggle("is-running", state.status === "running");
+  dEls.runPanel.classList.toggle("is-failed", state.status === "failed");
+
+  const running = state.status === "running";
+  dEls.refresh.disabled = running;
+  dEls.refresh.classList.toggle("is-busy", running);
+  dEls.refreshLabel.textContent = running ? "Searching…" : "Refresh job searches";
+
+  // The last line discover.js printed is the most useful one-line status there
+  // is — it names the tier currently being fetched.
+  const last = state.log.length ? state.log[state.log.length - 1] : "";
+  if (running) {
+    dEls.runStatus.textContent = last || "Starting discovery…";
+  } else if (state.status === "done") {
+    const saved = state.log.find((l) => l.includes("New postings saved:"));
+    dEls.runStatus.textContent = saved ? saved.trim() : "Run finished.";
+  } else {
+    dEls.runStatus.textContent = `Run failed (exit ${state.exitCode}). ${last}`;
+  }
+
+  dEls.runLog.textContent = state.log.join("\n");
+  // Only autoscroll while the log is growing; once the run is over the user may
+  // be reading the gate tolls further up.
+  if (running && !dEls.runLog.hidden) dEls.runLog.scrollTop = dEls.runLog.scrollHeight;
+}
+
+async function pollRun() {
+  let state;
+  try {
+    state = await api("/api/discover/status");
+  } catch {
+    // A dropped poll is not a failed run — the server may just be busy under
+    // the run’s own writes. Keep polling rather than declaring failure.
+    return;
+  }
+  renderRun(state);
+
+  if (state.status === "running") return;
+
+  clearInterval(pollTimer);
+  pollTimer = null;
+  // The run wrote rows straight into jobs.db, so the feed on screen is stale
+  // the moment it finishes.
+  if (state.status === "done") await loadDiscovered();
+  else loadSourceHealth();
+}
+
+function watchRun() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollRun, POLL_MS);
+}
+
+dEls.refresh.addEventListener("click", async () => {
+  dEls.refresh.disabled = true;
+  try {
+    // No body: the freshness window was already saved when it was chosen, and
+    // discover.js reads it from preferences.json itself. Widening the filter
+    // and hitting Refresh still fetches the older postings it now admits.
+    renderRun(await api("/api/discover", { method: "POST" }));
+    watchRun();
+  } catch (err) {
+    dEls.runPanel.hidden = false;
+    dEls.runPanel.classList.add("is-failed");
+    dEls.runStatus.textContent = err.message;
+    dEls.refresh.disabled = false;
+    // A 409 means a run this tab did not start is already going; join it.
+    watchRun();
+  }
+});
+
+dEls.toggleRunLog.addEventListener("click", () => {
+  const show = dEls.runLog.hidden;
+  dEls.runLog.hidden = !show;
+  dEls.toggleRunLog.textContent = show ? "Hide log" : "Show log";
+  dEls.toggleRunLog.setAttribute("aria-expanded", String(show));
+  if (show) dEls.runLog.scrollTop = dEls.runLog.scrollHeight;
+});
+
+// Adopt an in-flight run on first load.
+api("/api/discover/status")
+  .then((state) => {
+    renderRun(state);
+    if (state.status === "running") watchRun();
+  })
+  .catch(() => {});
+
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-function filtered() {
-  const q = dEls.search.value.trim().toLowerCase();
-  const status = dEls.statusFilter.value;
-
-  return discovered.filter((job) => {
-    if (status === "active") {
-      // The default: rows that still need a decision from the user.
-      if (!["new", "queued", "generating", "tailored"].includes(job.status)) return false;
-    } else if (status !== "all" && job.status !== status) {
-      return false;
-    }
-    if (!q) return true;
-    return [job.title, job.company, job.location, (job.sources || []).join(" ")]
-      .join(" ")
-      .toLowerCase()
-      .includes(q);
-  });
-}
-
 function actionsFor(job) {
   const btn = (action, label, cls = "") =>
     `<button type="button" class="row-action ${cls}" data-action="${action}" data-id="${job.id}">${label}</button>`;
@@ -223,11 +469,18 @@ function actionsFor(job) {
     case "new":
       return btn("tailor", "Tailor", "primary") + btn("dismiss", "Dismiss") + btn("apply", "Applied");
     case "queued":
-      return btn("tailor", "Review &amp; generate", "primary") + btn("reject", "Reject") + btn("apply", "Applied");
+      return btn("tailor", "Tailor", "primary") + btn("reject", "Reject") + btn("apply", "Applied");
     case "generating":
-      return '<span class="hint">working…</span>';
+      return '<span class="row-working"><span class="row-spinner"></span>Tailoring…</span>';
     case "tailored":
-      return btn("draft", "View draft", "primary") + btn("apply", "Applied") + btn("dismiss", "Dismiss");
+      // Download first: the draft already exists, so re-downloading it should
+      // not mean re-running a two-minute generation.
+      return (
+        btn("download", "Download", "primary") +
+        btn("draft", "Review") +
+        btn("apply", "Applied") +
+        btn("dismiss", "Dismiss")
+      );
     case "rejected":
     case "dismissed":
       return btn("reset", "Restore");
@@ -240,8 +493,29 @@ function actionsFor(job) {
   }
 }
 
-function renderDiscovered() {
-  const rows = filtered();
+// The empty state used to be a hardcoded line of HTML naming "Posted ≤ 3
+// days" regardless of which freshness filter was actually active — so
+// switching to "Any age" still told you to widen a filter you'd already
+// widened. Build it from the live filter state instead.
+function emptyStateMessage() {
+  const q = dEls.search.value.trim();
+  if (q) return `Nothing matches &ldquo;${esc(q)}&rdquo; under the current filters.`;
+
+  const freshnessLabel = dEls.freshness.options[dEls.freshness.selectedIndex].textContent;
+  let msg = `No discovered postings match these filters. Hit <strong>Refresh job searches</strong> to pull new ones`;
+  if (dEls.freshness.value !== "0") {
+    msg +=
+      `, widen &ldquo;${esc(freshnessLabel)}&rdquo; and refresh again ` +
+      `(the freshness filter sets how far back the next run looks)`;
+  }
+  msg += `, or edit <code>config/preferences.json</code>.`;
+  return msg;
+}
+
+function renderDiscovered(animate = true) {
+  // The server has already applied every filter in the bar, so this renders
+  // what it returned rather than filtering a second time over the same rows.
+  const rows = discovered;
   const shown = rows.slice(0, visibleCount);
 
   dEls.body.innerHTML = shown
@@ -279,8 +553,11 @@ function renderDiscovered() {
         </tr>`;
     })
     .join("");
+  if (animate) staggerRows(dEls.body);
+  else [...dEls.body.children].forEach((row) => (row.style.animation = "none"));
 
   dEls.empty.hidden = rows.length > 0;
+  if (rows.length === 0) dEls.empty.innerHTML = emptyStateMessage();
   dEls.loadMore.hidden = rows.length <= visibleCount;
 
   // The count the server filtered down from matters as much as what survived:
@@ -313,9 +590,15 @@ function renderDiscovered() {
   dEls.count.hidden = needsDecision === 0;
 }
 
+// Search is a server query now, so it is debounced rather than fired on every
+// keystroke — the request runs over the whole table, not just the loaded page.
+let searchTimer = null;
 dEls.search.addEventListener("input", () => {
-  visibleCount = PAGE_SIZE;
-  renderDiscovered();
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    visibleCount = PAGE_SIZE;
+    loadDiscovered();
+  }, 220);
 });
 dEls.statusFilter.addEventListener("change", () => {
   visibleCount = PAGE_SIZE;
@@ -339,27 +622,38 @@ dEls.body.addEventListener("click", async (e) => {
   try {
     switch (button.dataset.action) {
       case "tailor":
-        await openTailorModal(job);
+        await tailorAndDownload(job, button);
+        break;
+      case "download":
+        downloadDraft(job.id);
         break;
       case "draft":
         await openDraftModal(job);
         break;
-      case "reject":
-        if (!confirm("Reject this posting? It won't be offered for tailoring again unless you restore it.")) return;
+      case "reject": {
+        const ok = await confirmDialog(
+          "Reject this posting? It won't be offered for tailoring again unless you restore it.",
+          { title: "Reject posting?", confirmLabel: "Reject", danger: true }
+        );
+        if (!ok) return;
         await setStatus(id, "rejected");
+        showToast("Rejected — moved out of your feed.", { type: "success" });
         break;
+      }
       case "dismiss":
         await setStatus(id, "dismissed");
+        showToast("Dismissed.", { type: "info" });
         break;
       case "reset":
         await setStatus(id, "new");
+        showToast("Restored to New.", { type: "success" });
         break;
       case "apply":
         await markApplied(job);
         break;
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { type: "error" });
   }
 });
 
@@ -375,73 +669,85 @@ async function setStatus(id, status) {
 // req. 32: creates the row in the existing applied log, pre-filled, and links
 // the two records. Refreshes the applied view so it shows up there immediately.
 async function markApplied(job) {
-  if (!confirm(`Log an application to ${job.title} at ${job.company}?`)) return;
+  const ok = await confirmDialog(`Log an application to ${job.title} at ${job.company}?`, {
+    title: "Mark as applied?",
+    confirmLabel: "Log application",
+  });
+  if (!ok) return;
   await api(`/api/discovered/${job.id}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
+  showToast(`Logged application to ${job.company}.`, { type: "success" });
   await loadDiscovered();
   // app.js owns the applied log; ask it to reload rather than duplicating it.
   if (typeof window.reloadJobs === "function") window.reloadJobs();
 }
 
 // ---------------------------------------------------------------------------
-// The approval gate (req. 21-22)
+// Tailoring — generate and hand back the file (req. 21-22)
 // ---------------------------------------------------------------------------
-async function openTailorModal(job) {
-  activeJob = job;
-  dEls.tailorStatus.textContent = "";
-  dEls.confirmGenerate.disabled = false;
-  dEls.tailorJobLine.textContent = `${job.title} — ${job.company}${job.location ? ` (${job.location})` : ""}`;
-  dEls.promptPreview.textContent = "Building preview…";
-  dEls.tailorModal.hidden = false;
-
-  try {
-    const preview = await api(`/api/discovered/${job.id}/preview`);
-    dEls.promptPreview.textContent = preview.prompt;
-    dEls.outputPathText.textContent = preview.outputPath;
-
-    // req. 24: tell the user their posting was scrubbed rather than silently
-    // changing what they're approving.
-    const s = preview.sanitization || {};
-    dEls.injectionNotice.hidden = !s.injectionDetected;
-    dEls.injectionRules.textContent = s.injectionDetected ? ` Rules fired: ${s.triggered.join(", ")}.` : "";
-    dEls.htmlNotice.hidden = !s.htmlStripped;
-  } catch (err) {
-    dEls.promptPreview.textContent = `Could not build the prompt: ${err.message}`;
-    dEls.confirmGenerate.disabled = true;
-  }
+// Clicking "Tailor" is the approval. It names one posting and generates against
+// that posting only; the state machine still refuses to reach `tailored` by any
+// other route. What it no longer does is make the user read a prompt preview
+// and click a second confirm button to get to the same place.
+//
+// The two things that preview *did* carry — the injection-sanitizer warning
+// (req. 24) and the traceability flags (req. 23) — come back with the response
+// and are surfaced as toasts, so removing the screen does not remove the
+// signals. "Review" on a tailored row still opens the full flag view.
+function downloadDraft(id) {
+  // A real navigation to an endpoint that sets Content-Disposition, so the
+  // browser names the file from the server rather than from a blob URL.
+  const a = document.createElement("a");
+  a.href = `/api/discovered/${id}/draft/download`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
-dEls.confirmGenerate.addEventListener("click", async () => {
-  if (!activeJob) return;
-  const job = activeJob;
-  dEls.confirmGenerate.disabled = true;
+async function tailorAndDownload(job, button) {
+  const cell = button.closest(".row-actions");
+  const previous = cell.innerHTML;
+  // The call is a live Claude Code invocation — minutes, not milliseconds. The
+  // row has to show that it is working or the click reads as a no-op.
+  cell.innerHTML = '<span class="row-working"><span class="row-spinner"></span>Tailoring…</span>';
 
   try {
-    // The row must be `queued` before it can be tailored — that's the state
-    // machine's gate, so a `new` row is queued by this same confirming click.
-    if (job.status === "new") await api(`/api/discovered/${job.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "queued" }),
-    });
-
-    dEls.tailorStatus.textContent = "Generating — this can take a couple of minutes…";
     const result = await api(`/api/discovered/${job.id}/tailor`, { method: "POST" });
+    if (!result.ok) throw new Error(result.error || "Tailoring failed.");
 
-    dEls.tailorModal.hidden = true;
-    await loadDiscovered();
-    const updated = discovered.find((j) => j.id === job.id);
-    if (updated) await openDraftModal(updated);
+    downloadDraft(job.id);
+
+    const sanitization = result.sanitization || {};
+    const flagged = (result.traceability?.flagged || []).length;
+
+    if (flagged > 0) {
+      showToast(
+        `Resume downloaded — but ${flagged} line(s) could not be traced to your base resume. ` +
+          `Open “Review” on this row before you send it.`,
+        { type: "warn", duration: 8000 }
+      );
+    } else {
+      showToast(`Tailored resume downloaded for ${job.company}.`, { type: "success" });
+    }
+    // req. 24: never let a scrubbed posting pass silently.
+    if (sanitization.injectionDetected) {
+      showToast(
+        `Heads up: injection patterns were neutralized in this posting before it reached Claude ` +
+          `(${(sanitization.triggered || []).join(", ")}).`,
+        { type: "warn", duration: 8000 }
+      );
+    }
   } catch (err) {
     // req. 28: the row is already back to `queued` server-side; surface why.
-    dEls.tailorStatus.textContent = `Failed: ${err.message}`;
-    dEls.confirmGenerate.disabled = false;
-    await loadDiscovered();
+    cell.innerHTML = previous;
+    showToast(`Tailoring failed: ${err.message}`, { type: "error", duration: 8000 });
   }
-});
+  await loadDiscovered();
+}
 
 // ---------------------------------------------------------------------------
 // Draft review — traceability flags and the override audit trail (req. 23)
@@ -528,6 +834,10 @@ dEls.flagList.addEventListener("click", async (e) => {
   } catch (err) {
     dEls.draftStatus.textContent = err.message;
   }
+});
+
+dEls.downloadFromDraft.addEventListener("click", () => {
+  if (activeJob) downloadDraft(activeJob.id);
 });
 
 dEls.markAppliedFromDraft.addEventListener("click", async () => {

@@ -63,6 +63,7 @@ a { color: var(--accent); }
   font-size: 1.5rem;
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 .clock-label {
   font-size: 0.7rem;
@@ -158,8 +159,11 @@ a { color: var(--accent); }
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.92rem;
+  transition: transform 0.12s ease, filter 0.12s ease, background-color 0.12s ease;
 }
 .btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:active { transform: scale(0.96); }
+.btn-primary.btn-danger { background: var(--danger); color: #2a0d07; }
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--line);
@@ -169,8 +173,10 @@ a { color: var(--accent); }
   cursor: pointer;
   font-size: 0.88rem;
   text-decoration: none;
+  transition: color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+.btn-ghost:active { transform: scale(0.96); }
 
 /* ---------- Heatmap (GitHub-contribution style, grows with your history) ---------- */
 .heatmap {
@@ -188,7 +194,9 @@ a { color: var(--accent); }
   background: var(--panel-2);
   border: 1px solid var(--line);
   flex: none;
+  transition: transform 0.1s ease;
 }
+.heatmap .cell:hover { transform: scale(1.4); position: relative; z-index: 1; }
 .heatmap .cell[data-future="1"] { opacity: 0.35; }
 .heatmap .cell.l1 { background: #3a3324; }
 .heatmap .cell.l2 { background: #5c4a1e; }
@@ -228,6 +236,12 @@ a { color: var(--accent); }
 }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+
+/* Staggered entrance for a freshly-rebuilt <tbody> (see ui.js staggerRows).
+   Skipped on typing-driven re-renders so search doesn't replay it. */
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+#logBody tr, #discoveredBody tr { animation: rowIn 0.26s ease both; }
+tr { transition: background-color 0.12s ease; }
 th {
   text-align: left;
   color: var(--muted);
@@ -263,8 +277,10 @@ tr:hover td { background: var(--panel-2); }
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.15rem 0.4rem;
+  transition: color 0.12s ease, transform 0.12s ease;
 }
 .row-actions button:hover { color: var(--text); }
+.row-actions button:active { transform: scale(0.94); }
 
 .empty-state { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
 
@@ -305,6 +321,7 @@ tr:hover td { background: var(--panel-2); }
   align-items: center;
   gap: 0.45rem;
 }
+.view-tab { transition: color 0.15s ease, border-color 0.15s ease; }
 .view-tab:hover { color: var(--text); }
 .view-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-count {
@@ -337,22 +354,170 @@ tr:hover td { background: var(--panel-2); }
 .source-banner.is-critical strong { color: var(--danger); }
 
 /* ---------- Controls ---------- */
-.discovered-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-.discovered-controls input,
-.discovered-controls select {
+/* ---------- Discovered: panel head + filter bar ---------- */
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+.panel-head-main h2 { margin-bottom: 0.2rem; }
+.panel-head-main .hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-height: 1.2em;   /* reserve the line so the bar doesn't jump when it empties */
+}
+
+/* Explicit columns rather than flex-wrap: the number of controls per row is a
+   decision made at each breakpoint, so nothing ends up orphaned on its own. */
+.filter-bar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.6fr) repeat(4, minmax(112px, 1fr)) auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.55rem 0.6rem;
+  margin-bottom: 1rem;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.45rem 0.7rem;
-  color: var(--text);
-  font-size: 0.85rem;
+  border-radius: 8px;
 }
-.discovered-controls input { width: 260px; }
+
+.filter-bar select,
+.filter-search input {
+  width: 100%;
+  min-width: 0;          /* lets a grid item shrink below its content width */
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.48rem 0.7rem;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.83rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.filter-bar select:hover,
+.filter-search input:hover { border-color: #3a4150; }
+.filter-bar select:focus-visible,
+.filter-search input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* The native dark-mode select arrow is inconsistent across platforms; draw our
+   own so all four read as one control set. */
+.filter-bar select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238b93a3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 9px;
+  cursor: pointer;
+}
+.filter-bar select option { background: var(--panel-2); color: var(--text); }
+
+.filter-search { position: relative; display: flex; align-items: center; }
+.filter-search-icon {
+  position: absolute;
+  left: 0.62rem;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.filter-search input { padding-left: 1.95rem; }
+.filter-search input::-webkit-search-cancel-button { filter: invert(0.6); cursor: pointer; }
+
+/* A switch rather than a checkbox: it sits in a row of pill-shaped controls,
+   and a bare checkbox next to four selects read as an afterthought. */
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.filter-toggle:hover { border-color: #3a4150; }
+/* Visually hidden, not removed: a zero-sized input drops out of the
+   accessibility tree, so the switch would be unreachable by screen reader and
+   keyboard even though the label still worked with a mouse. */
+.filter-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.toggle-track {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: #3a4150;
+  transition: background-color 0.18s ease;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+.filter-toggle input:checked ~ .toggle-track { background: var(--accent-dim); }
+.filter-toggle input:checked ~ .toggle-track .toggle-thumb {
+  transform: translateX(12px);
+  background: var(--accent);
+}
+.filter-toggle:has(input:checked) { color: var(--text); border-color: #3a4150; }
+.filter-toggle input:focus-visible ~ .toggle-track { box-shadow: 0 0 0 3px var(--accent-dim); }
+
 .load-more-wrap { display: flex; justify-content: center; padding-top: 0.75rem; }
 
 #discoveredTable td { vertical-align: top; }
 #discoveredTable .sources-cell { color: var(--muted); font-size: 0.75rem; }
 .row-error { color: var(--danger); font-size: 0.72rem; margin-top: 0.2rem; }
+
+/* Tailoring is a live Claude Code call — a minute or two, not a blink. The row
+   says so in place rather than the click appearing to do nothing. */
+.row-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--teal);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.row-spinner {
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid #4fb0a544;
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: refresh-spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-spinner { animation-duration: 2.4s; }
+}
 
 /* ---------- Status badges: one per req. 18 state, visually distinct (§6) ---------- */
 .status-new       { color: var(--accent);  border-color: #e2a33b55; }
@@ -376,8 +541,10 @@ tr:hover td { background: var(--panel-2); }
   padding: 0.2rem 0.5rem;
   margin-right: 0.25rem;
   white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease, transform 0.12s ease;
 }
 .row-action:hover { color: var(--text); border-color: var(--muted); }
+.row-action:active { transform: scale(0.95); }
 .row-action.primary { color: var(--accent); border-color: #e2a33b66; }
 .row-action.primary:hover { background: var(--accent-dim); }
 
@@ -391,6 +558,7 @@ tr:hover td { background: var(--panel-2); }
   justify-content: center;
   padding: 2rem 1rem;
   z-index: 50;
+  animation: backdropIn 0.15s ease both;
 }
 .modal {
   background: var(--panel);
@@ -400,8 +568,12 @@ tr:hover td { background: var(--panel-2); }
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+  animation: modalIn 0.18s cubic-bezier(.2, .8, .2, 1) both;
 }
 .modal.wide { width: min(1040px, 100%); }
+.modal.confirm-modal { width: min(420px, 100%); }
+@keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 .modal-head, .modal-foot {
   display: flex;
   align-items: center;
@@ -473,10 +645,24 @@ tr:hover td { background: var(--panel-2); }
 }
 .draft-details summary:hover { color: var(--text); }
 
+/* Whole-row reflow for the filter bar. Each step drops to a column count the
+   remaining width actually fits, so the bar never leaves one control stranded
+   on a line by itself. */
+@media (max-width: 1120px) {
+  .filter-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .filter-search { grid-column: 1 / -1; }
+  .filter-toggle { justify-self: start; }
+}
+@media (max-width: 780px) {
+  .filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 860px) {
   .view-tabs { padding: 0 1rem; }
-  .discovered-controls { flex-direction: column; }
-  .discovered-controls input { width: 100%; }
+  .panel-head { flex-direction: column; align-items: stretch; }
+  .panel-head .btn-refresh { justify-content: center; }
+}
+@media (max-width: 520px) {
+  .filter-bar { grid-template-columns: 1fr; }
 }
 
 /* A class that sets `display` beats the UA stylesheet's rule for the `hidden`
@@ -532,3 +718,202 @@ tr:hover td { background: var(--panel-2); }
 .bucket-unknown   { background: #f1f5f9; color: #64748b; }
 
 #mixSummary { margin-top: -0.25rem; font-variant-numeric: tabular-nums; }
+
+/* ---------- Refresh button + discovery run panel ---------- */
+/* The one control in the Discovered view that changes the database rather than
+   the view over it, so it reads as an action and not another filter. */
+.btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.btn-refresh:disabled { cursor: progress; filter: saturate(0.5) brightness(0.85); }
+
+.refresh-spinner { display: none; }
+.btn-refresh.is-busy .refresh-spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid #1a120644;
+  border-top-color: #1a1206;
+  border-radius: 50%;
+  animation: refresh-spin 0.7s linear infinite;
+}
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-refresh.is-busy .refresh-spinner { animation-duration: 2.4s; }
+}
+
+.run-panel {
+  margin: 0.75rem 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--grey);
+  border-radius: 6px;
+}
+.run-panel.is-running { border-left-color: var(--accent); }
+.run-panel.is-failed  { border-left-color: var(--danger); }
+
+.run-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.run-status {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-panel.is-running .run-status { color: var(--text); }
+.run-panel.is-failed .run-status { color: var(--danger); }
+
+/* A run prints a few hundred lines; the panel must not push the table off
+   screen, so the log scrolls inside a fixed height. */
+.run-log {
+  margin: 0.7rem 0 0;
+  padding: 0.6rem 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Toasts (replaces alert()) ---------- */
+.toast-stack {
+  position: fixed;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 100;
+  max-width: 340px;
+}
+.toast {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  box-shadow: 0 8px 24px #00000066;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+.toast.is-visible { opacity: 1; transform: translateY(0) scale(1); }
+.toast-success { border-left-color: var(--green); }
+.toast-error { border-left-color: var(--danger); }
+.toast-info { border-left-color: var(--teal); }
+.toast-warn { border-left-color: var(--accent); }
+
+@media (max-width: 500px) {
+  .toast-stack { left: 1rem; right: 1rem; max-width: none; }
+}
+
+/* Scoped reduced-motion: turns off the entrance/decorative animations above
+   without touching the refresh spinner's own reduced-motion handling. */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .modal-backdrop,
+  .modal-backdrop .modal,
+  #logBody tr,
+  #discoveredBody tr,
+  .heatmap .cell {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --- Multi-select location filter ----------------------------------------
+   Shaped to match the three <select>s beside it — same height, border, focus
+   ring and chevron — so the filter bar still reads as one set of controls
+   even though this one opens a checkbox popover rather than a native list. */
+.multi-select { position: relative; min-width: 0; }
+
+.multi-select-toggle {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.48rem 1.75rem 0.48rem 0.7rem;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238b93a3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 9px;
+}
+.multi-select-toggle:hover { border-color: #3a4150; }
+.multi-select-toggle:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+/* The label truncates rather than widening the grid column when several
+   locations are selected; the full list stays in the title attribute. */
+#bucketLabel { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.multi-select-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  padding: 0.35rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.multi-select-panel label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.34rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.83rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.multi-select-panel label:hover { background: var(--panel); }
+.multi-select-panel input { accent-color: var(--accent); cursor: pointer; }
+
+.multi-select-clear {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.34rem 0.5rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 5px 5px;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.multi-select-clear:hover { color: var(--text); }
