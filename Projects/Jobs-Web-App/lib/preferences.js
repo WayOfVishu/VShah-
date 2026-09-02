@@ -2,7 +2,7 @@
 // separate from sources.json because scripts/bootstrap-sources.js rewrites
 // that file wholesale and would otherwise wipe these settings.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,5 +50,28 @@ export function loadPreferences({ reload = false } = {}) {
     locationWeights: { ...DEFAULT_PREFERENCES.locationWeights, ...(clean.locationWeights || {}) },
     scoreWeights: { ...DEFAULT_PREFERENCES.scoreWeights, ...(clean.scoreWeights || {}) },
   };
+  // "No age limit" isn't valid JSON as Infinity, so it round-trips through
+  // `null` on disk (see savePreferences) and is restored here.
+  if (cached.maxAgeDays === null) cached.maxAgeDays = Infinity;
   return cached;
+}
+
+// Merges `updates` into config/preferences.json on disk and refreshes the
+// in-memory cache, so a value set from the dashboard (e.g. the Refresh
+// button's freshness window) is the same one discover.js's ingest gate,
+// this process's own /api/discovered default, and scripts/rescore.js all see
+// afterward - one stored value instead of a run-only override that only
+// discover.js ever heard about.
+//
+// Top-level merge only: every other key (including the `_`-prefixed inline
+// docs) is preserved untouched.
+export function savePreferences(updates) {
+  let onDisk = {};
+  if (existsSync(PREFS_PATH)) {
+    onDisk = JSON.parse(readFileSync(PREFS_PATH, "utf8"));
+  }
+  const next = { ...onDisk, ...updates };
+  writeFileSync(PREFS_PATH, JSON.stringify(next, null, 2) + "\n");
+  cached = null;
+  return loadPreferences();
 }

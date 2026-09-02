@@ -11,7 +11,7 @@ import { buildTailoringPrompt } from "./lib/promptBuild.js";
 import { checkTraceability } from "./lib/traceabilityCheck.js";
 import { tailorJob } from "./lib/tailorInvoke.js";
 import { renderMarkdownToPdf } from "./lib/pdfExport.js";
-import { loadPreferences } from "./lib/preferences.js";
+import { loadPreferences, savePreferences } from "./lib/preferences.js";
 import { weightedMix } from "./lib/scoring.js";
 import { isFresh, buildAppliedIndex, isAlreadyApplied, exceedsExperienceCap } from "./lib/jobFilter.js";
 
@@ -154,14 +154,16 @@ const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
 //                           configured location proportions; score is a flat
 //                           best-first ranking; recent is newest-first.
 //   maxAgeDays=N            posted within N days; 0 disables the filter.
-//                           Defaults to preferences.maxAgeDays.
+//                           Defaults to preferences.maxAgeDays - a one-off
+//                           override for browsing, not a config edit.
 //   hideApplied=0           include roles already in your applied log.
 //   bucket=calgary          restrict to one location bucket.
 //
 // The freshness filter lives here rather than only at ingest because a row
 // ingested three days ago is stale today - the database is a log, and the feed
-// is a view over it. (The ingest window itself is set per-run from the same
-// control; see startDiscoveryRun.)
+// is a view over it. (The ingest window itself is persisted to
+// preferences.json by /api/discover, so it, this default, and
+// scripts/rescore.js all agree on the same value between runs.)
 app.get("/api/discovered", (req, res) => {
   const prefs = loadPreferences();
   const status = req.query.status || "active";
@@ -454,16 +456,12 @@ const MAX_LOG_LINES = 400;
 
 let run = null;
 
-function startDiscoveryRun({ maxAgeDays } = {}) {
-  // The freshness control is a filter on the *run*, not just on the table. The
-  // ingest gate drops a stale posting before it is ever written, so a widened
-  // filter that never reached discover.js could not surface anything the
-  // previous, narrower run had already discarded.
-  const env = { ...process.env };
-  if (Number.isFinite(maxAgeDays) && maxAgeDays >= 0) {
-    env.DISCOVER_MAX_AGE_DAYS = String(maxAgeDays);
-  }
-  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env });
+function startDiscoveryRun() {
+  // The freshness control is a filter on the *run*, not just on the table -
+  // the ingest gate drops a stale posting before it is ever written. Its value
+  // is persisted to preferences.json by the caller before this is invoked, so
+  // discover.js's own loadPreferences() call picks it up directly.
+  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env: process.env });
 
   run = {
     status: "running",
@@ -524,7 +522,12 @@ app.post("/api/discover", (req, res) => {
       .json({ error: 'config/sources.json not found. Run "npm run bootstrap-sources" first.' });
   }
   const requested = Number((req.body || {}).maxAgeDays);
-  startDiscoveryRun({ maxAgeDays: Number.isFinite(requested) ? requested : undefined });
+  if (Number.isFinite(requested) && requested >= 0) {
+    // 0 is the UI's "Any age"; stored as null since Infinity isn't valid JSON
+    // (loadPreferences() converts it back on read).
+    savePreferences({ maxAgeDays: requested === 0 ? null : requested });
+  }
+  startDiscoveryRun();
   res.status(202).json(runState());
 });
 

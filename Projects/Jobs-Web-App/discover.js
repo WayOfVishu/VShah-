@@ -209,22 +209,11 @@ async function main() {
   db.pragma("busy_timeout = 5000");
   applyMigrations(db);
 
-  // Copied, not used in place: loadPreferences() hands back a shared cached
-  // object and the age window below is a per-run override, not a config edit.
-  const prefs = { ...loadPreferences() };
-
-  // The dashboard's "Posted ≤ N days" control sets this when the Refresh button
-  // starts the run. Without it the ingest window was pinned to
-  // preferences.json's maxAgeDays no matter what the UI showed, so widening the
-  // filter only ever widened the *display* — the postings it was meant to admit
-  // had already been rejected as stale before they reached the database.
-  const rawMaxAge = process.env.DISCOVER_MAX_AGE_DAYS;
-  if (rawMaxAge !== undefined && rawMaxAge !== "") {
-    const n = Number(rawMaxAge);
-    // 0 is the UI's "Any age"; isFresh() compares against it numerically, so
-    // Infinity is the honest spelling of no upper bound.
-    if (Number.isFinite(n) && n >= 0) prefs.maxAgeDays = n === 0 ? Infinity : n;
-  }
+  // The dashboard's "Posted ≤ N days" control writes straight into
+  // preferences.json (see /api/discover in server.js) before this process is
+  // spawned, so the ingest window here is always whatever Refresh was last
+  // run with - the same value the live view and rescore.js fall back to.
+  const prefs = loadPreferences();
   const ageLabel = prefs.maxAgeDays === Infinity ? "any age" : `posted within ${prefs.maxAgeDays}d`;
 
   const summary = { fetched: 0, duplicates: 0, inserted: 0, rejected: {}, failures: [] };
