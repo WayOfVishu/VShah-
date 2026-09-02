@@ -1,8 +1,7 @@
 {
   "_comment": "What you want, as opposed to sources.json which is where to look. bootstrap-sources.js rewrites sources.json wholesale but never touches this file, so edits here survive a re-bootstrap.",
-
-  "maxAgeDays": 3,
-
+  "_maxAgeDays": "Kept in sync with the dashboard's freshness control: hitting Refresh with a window writes it here, so ingest, the live view's default, and scripts/rescore.js all agree on one value instead of drifting. null means no age limit (the UI's 'Any age').",
+  "maxAgeDays": 7,
   "_roleKeywords": "A posting must match one of these in its title to be ingested at all. Tier 1 pulls a company's ENTIRE board, so without this gate you get welders and accountants alongside the engineering roles.",
   "roleKeywords": [
     "software engineer",
@@ -23,7 +22,6 @@
     "ai engineer",
     "developer"
   ],
-
   "_levelKeywords": "New-grad signals. Not required, but they raise the score, and a title carrying one satisfies the role gate on its own.",
   "levelKeywords": [
     "new grad",
@@ -44,7 +42,6 @@
     "developer i",
     "developer 1"
   ],
-
   "_gradKeywords": "Graduate-program titles that clear the role gate on their own, since such a posting may name no engineering discipline at all. Deliberately narrower than levelKeywords: letting \"associate\" or \"entry level\" through the gate pulled in support and production-technician roles from the real corpus.",
   "gradKeywords": [
     "new grad",
@@ -56,7 +53,6 @@
     "graduate rotational",
     "early talent"
   ],
-
   "_timingKeywords": "Your Jan 2027 start window. Scored, never required — most postings never state a start date, and requiring it would empty the feed.",
   "timingKeywords": [
     "jan 2027",
@@ -65,7 +61,6 @@
     "early 2027",
     "2027"
   ],
-
   "_excludeTitleKeywords": "Seniority markers. Matched on word boundaries, so 'Lead' is excluded but 'Leadership' is not.",
   "excludeTitleKeywords": [
     "senior",
@@ -83,7 +78,6 @@
     "co-op",
     "coop"
   ],
-
   "_locationWeights": "Your stated preference mix. Used two ways: normalized against the largest weight they become the location half of match_score, and as-is they set the proportions of the default balanced feed.",
   "locationWeights": {
     "calgary": 0.5,
@@ -92,14 +86,11 @@
     "vancouver": 0.1,
     "seattle": 0.05
   },
-
   "_offListLocations": "drop = a posting whose location resolves to none of the buckets above is never ingested. Postings with no location string at all are kept, bucketed as 'unknown', and sorted after the balanced feed.",
   "offListLocations": "drop",
-
   "_workAuth": "You do not hold US work authorization. A US-restricted posting (Seattle, or a remote role fenced to the US) that never mentions sponsorship gets its location score multiplied by this, so it stops consuming your 5% Seattle share.",
   "requireSponsorshipForUS": true,
   "usNoSponsorshipPenalty": 0.35,
-
   "_scoreWeights": "match_score = locationWeight * location + keywordWeight * keywords. Location leads because it is the constraint you were most specific about.",
   "scoreWeights": {
     "location": 0.65,
