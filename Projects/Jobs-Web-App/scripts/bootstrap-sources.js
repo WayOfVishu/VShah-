@@ -6,7 +6,7 @@
 // Usage: node scripts/bootstrap-sources.js
 
 import Database from "better-sqlite3";
-import { writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as greenhouse from "../connectors/greenhouse.js";
@@ -38,6 +38,33 @@ const SENIORITY_WORDS = [
   "internship", "new grad", "graduate", "level 1", "level 2", "level 3",
   "entry level", "co-op", "coop", "associate", "director", "vp",
 ];
+
+// This script only knows how to *discover* Greenhouse, Lever and Ashby boards,
+// because those are the three it can find from a company name alone. Workday
+// needs a tenant, a cell and a site name; Workable, Recruitee and BambooHR
+// need a slug that is not derivable from the company's name either. Those are
+// added by hand (or by scripts/probe-workday.js).
+//
+// So a re-bootstrap merges rather than overwrites. Rewriting tier1Watchlist
+// wholesale, which is what this used to do, silently deleted every board the
+// probe cannot rediscover — turning "refresh my keywords" into "throw away the
+// Calgary employer list". Anything already in the file stays; the probe only
+// adds.
+function boardKey(entry) {
+  return entry.platform === "workday"
+    ? `workday:${entry.tenant}/${entry.site}`
+    : `${entry.platform}:${entry.slug}`;
+}
+
+function readExistingConfig() {
+  if (!existsSync(OUT_PATH)) return null;
+  try {
+    return JSON.parse(readFileSync(OUT_PATH, "utf8"));
+  } catch {
+    console.warn(`  ${OUT_PATH} is not valid JSON — starting fresh rather than merging into it.`);
+    return null;
+  }
+}
 
 function slugCandidates(company) {
   const cleaned = company
@@ -129,23 +156,38 @@ async function main() {
     }
   }
 
+  const existing = readExistingConfig();
+  const kept = existing?.tier1Watchlist || [];
+  const seen = new Set(kept.map(boardKey));
+  const added = tier1.filter((entry) => !seen.has(boardKey(entry)));
+  const watchlist = [...kept, ...added];
+
   const config = {
     _comment: "Bootstrapped from jobs.db (PRD req. 8). Edit freely — this only sets the starting point.",
-    tier1Watchlist: tier1,
+    _watchlistNote: existing?._watchlistNote,
+    tier1SearchKeywords: existing?.tier1SearchKeywords,
+    tier1Watchlist: watchlist,
     tier2Keywords: keywords,
     tier2KeywordSource: keywordSource,
-    tier2Sources: [
+    tier2Sources: existing?.tier2Sources || [
       { name: "remotive", rateLimitMs: 2000 },
       { name: "remoteok", rateLimitMs: 2000 },
       { name: "weworkremotely", rateLimitMs: 2000 },
     ],
-    tier2WwrCategories: ["remote-programming-jobs", "remote-devops-sysadmin-jobs"],
-    tier2CareerPages: [],
+    tier2WwrCategories: existing?.tier2WwrCategories || [
+      "remote-programming-jobs",
+      "remote-devops-sysadmin-jobs",
+    ],
+    tier2CareerPages: existing?.tier2CareerPages || [],
   };
+  for (const [k, v] of Object.entries(config)) if (v === undefined) delete config[k];
 
   writeFileSync(OUT_PATH, JSON.stringify(config, null, 2) + "\n");
   console.log(`\nWrote ${OUT_PATH}`);
-  console.log(`  Tier 1 watchlist: ${tier1.length} companies with a public board found (out of ${companies.length} checked)`);
+  console.log(
+    `  Tier 1 watchlist: ${watchlist.length} boards ` +
+      `(${kept.length} kept, ${added.length} newly found out of ${companies.length} companies checked)`
+  );
   console.log(`  Tier 2 keywords (${keywordSource}): ${keywords.join(", ")}`);
 }
 

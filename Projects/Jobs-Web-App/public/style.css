@@ -840,3 +840,80 @@ tr:hover td { background: var(--panel-2); }
     transition-duration: 0.001ms !important;
   }
 }
+
+/* --- Multi-select location filter ----------------------------------------
+   Shaped to match the three <select>s beside it — same height, border, focus
+   ring and chevron — so the filter bar still reads as one set of controls
+   even though this one opens a checkbox popover rather than a native list. */
+.multi-select { position: relative; min-width: 0; }
+
+.multi-select-toggle {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.48rem 1.75rem 0.48rem 0.7rem;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238b93a3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 9px;
+}
+.multi-select-toggle:hover { border-color: #3a4150; }
+.multi-select-toggle:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+/* The label truncates rather than widening the grid column when several
+   locations are selected; the full list stays in the title attribute. */
+#bucketLabel { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.multi-select-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  padding: 0.35rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.multi-select-panel label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.34rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.83rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.multi-select-panel label:hover { background: var(--panel); }
+.multi-select-panel input { accent-color: var(--accent); cursor: pointer; }
+
+.multi-select-clear {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.34rem 0.5rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 5px 5px;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.multi-select-clear:hover { color: var(--text); }

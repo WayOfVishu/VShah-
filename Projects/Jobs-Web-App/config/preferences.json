@@ -1,7 +1,9 @@
 {
   "_comment": "What you want, as opposed to sources.json which is where to look. bootstrap-sources.js rewrites sources.json wholesale but never touches this file, so edits here survive a re-bootstrap.",
-  "_maxAgeDays": "Kept in sync with the dashboard's freshness control: hitting Refresh with a window writes it here, so ingest, the live view's default, and scripts/rescore.js all agree on one value instead of drifting. null means no age limit (the UI's 'Any age').",
-  "maxAgeDays": 7,
+  "_maxAgeDays": "How far back to look, in days. You do not edit this by hand: it is written here the moment you change the dashboard's 'Posted within' control, and everything that cares about dates reads it from here - the ingest gate, the on-screen feed, and scripts/rescore.js. null means no age limit (the control's 'Any age').",
+  "maxAgeDays": null,
+  "_archiveAfterDays": "How long a posting you never acted on stays in the feed before a run sweeps it to 'archived'. Different question from maxAgeDays: that one is how old a posting was when it was found, this one is how long we keep showing it. Archiving is reversible from the dashboard's Restore button.",
+  "archiveAfterDays": 60,
   "_roleKeywords": "A posting must match one of these in its title to be ingested at all. Tier 1 pulls a company's ENTIRE board, so without this gate you get welders and accountants alongside the engineering roles.",
   "roleKeywords": [
     "software engineer",
@@ -78,11 +80,13 @@
     "co-op",
     "coop"
   ],
-  "_locationWeights": "Your stated preference mix. Used two ways: normalized against the largest weight they become the location half of match_score, and as-is they set the proportions of the default balanced feed.",
+  "_locationWeights": "Your stated preference mix. Used two ways: normalized against the largest weight they become the location half of match_score, and as-is they set the proportions of the default balanced feed. A location deleted from this object is genuinely gone - the defaults are NOT merged back over it.",
+  "_locationWeightsOrder": "Order matters on a tie. Calgary and remote are both 0.35, and a posting matching several buckets takes the first of the highest-weighted ones - so 'Calgary, AB / Remote' is filed as Calgary, which is right: it is a job you could do from an office you can drive to.",
+  "_remoteMeaning": "The remote bucket is not just the word 'remote' in a location field. A posting only counts as remote if it is (a) not US-fenced, since US-remote would need a TN visa, and (b) not actually hybrid, which only the description reveals. See lib/remote.js. A hybrid role in Calgary still buckets as Calgary - hybrid is fine when the office is the one you can drive to.",
   "locationWeights": {
-    "calgary": 0.5,
-    "edmonton": 0.2,
-    "remote": 0.15,
+    "calgary": 0.35,
+    "remote": 0.35,
+    "edmonton": 0.15,
     "vancouver": 0.1,
     "seattle": 0.05
   },
