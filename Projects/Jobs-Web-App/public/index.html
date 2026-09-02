@@ -158,49 +158,68 @@
   </div>
 
   <section class="panel log-panel" aria-labelledby="discoveredHeading">
-    <div class="log-panel-head">
-      <h2 id="discoveredHeading">Discovered postings</h2>
-      <div class="discovered-controls">
-        <button type="button" class="btn-primary btn-refresh" id="refreshDiscovery">
-          <span class="refresh-spinner" aria-hidden="true"></span>
-          <span id="refreshLabel">Refresh job searches</span>
-        </button>
-        <input id="discoveredSearch" type="search" placeholder="Filter by title, company, location…" />
-        <select id="statusFilter" aria-label="Filter by status">
-          <option value="active" selected>Needs a decision</option>
-          <option value="all">All (except archived)</option>
-          <option value="new">New</option>
-          <option value="queued">Queued</option>
-          <option value="tailored">Tailored</option>
-          <option value="rejected">Rejected</option>
-          <option value="dismissed">Dismissed</option>
-          <option value="applied">Applied</option>
-          <option value="archived">Archived</option>
-        </select>
-        <select id="sortMode" aria-label="Feed ordering">
-          <option value="mix" selected>Balanced mix</option>
-          <option value="score">Best match first</option>
-          <option value="recent">Newest first</option>
-        </select>
-        <select id="freshness" aria-label="Posted within">
-          <option value="3" selected>Posted ≤ 3 days</option>
-          <option value="7">Posted ≤ 7 days</option>
-          <option value="14">Posted ≤ 14 days</option>
-          <option value="0">Any age</option>
-        </select>
-        <select id="bucketFilter" aria-label="Filter by location">
-          <option value="" selected>All locations</option>
-          <option value="calgary">Calgary</option>
-          <option value="edmonton">Edmonton</option>
-          <option value="remote">Remote</option>
-          <option value="vancouver">Vancouver</option>
-          <option value="seattle">Seattle</option>
-        </select>
-        <label class="control-check">
-          <input type="checkbox" id="hideApplied" checked />
-          Hide already applied
-        </label>
+    <!-- Title + primary action on one line, filters on their own row below.
+         Cramming all seven controls into the heading row meant the last two
+         wrapped onto an orphaned second line at any real window width. -->
+    <div class="panel-head">
+      <div class="panel-head-main">
+        <h2 id="discoveredHeading">Discovered postings</h2>
+        <p class="hint" id="discoveredSummary">Loading…</p>
       </div>
+      <button type="button" class="btn-primary btn-refresh" id="refreshDiscovery">
+        <span class="refresh-spinner" aria-hidden="true"></span>
+        <span id="refreshLabel">Refresh job searches</span>
+      </button>
+    </div>
+
+    <!-- A grid, not a wrapping flex row: the column count is chosen per
+         breakpoint, so controls reflow in whole rows instead of leaving one
+         stranded select hanging under the search box. -->
+    <div class="filter-bar" role="group" aria-label="Filter discovered postings">
+      <div class="filter-search">
+        <svg class="filter-search-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none"
+             stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" />
+        </svg>
+        <input id="discoveredSearch" type="search" placeholder="Filter by title, company, location…" />
+      </div>
+      <select id="statusFilter" aria-label="Filter by status">
+        <option value="active" selected>Needs a decision</option>
+        <option value="all">All (except archived)</option>
+        <option value="new">New</option>
+        <option value="queued">Queued</option>
+        <option value="tailored">Tailored</option>
+        <option value="rejected">Rejected</option>
+        <option value="dismissed">Dismissed</option>
+        <option value="applied">Applied</option>
+        <option value="archived">Archived</option>
+      </select>
+      <select id="sortMode" aria-label="Feed ordering">
+        <option value="mix" selected>Balanced mix</option>
+        <option value="score">Best match first</option>
+        <option value="recent">Newest first</option>
+      </select>
+      <!-- Drives both the on-screen filter and the next discovery run's ingest
+           window — see startDiscoveryRun() in server.js. -->
+      <select id="freshness" aria-label="Posted within">
+        <option value="3" selected>Posted ≤ 3 days</option>
+        <option value="7">Posted ≤ 7 days</option>
+        <option value="14">Posted ≤ 14 days</option>
+        <option value="0">Any age</option>
+      </select>
+      <select id="bucketFilter" aria-label="Filter by location">
+        <option value="" selected>All locations</option>
+        <option value="calgary">Calgary</option>
+        <option value="edmonton">Edmonton</option>
+        <option value="remote">Remote</option>
+        <option value="vancouver">Vancouver</option>
+        <option value="seattle">Seattle</option>
+      </select>
+      <label class="filter-toggle">
+        <input type="checkbox" id="hideApplied" checked />
+        <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Hide applied</span>
+      </label>
     </div>
 
     <div class="run-panel" id="runPanel" hidden>
@@ -212,8 +231,6 @@
     </div>
 
     <p class="hint" id="mixSummary" hidden></p>
-
-    <p class="hint" id="discoveredSummary">Loading…</p>
 
     <div class="table-wrap">
       <table id="discoveredTable">
@@ -237,40 +254,10 @@
   </section>
 </main>
 
-<!-- ============ Confirm &amp; Generate — the single approval gate (req. 22) ============ -->
-<div class="modal-backdrop" id="tailorModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tailorModalTitle">
-    <div class="modal-head">
-      <h2 id="tailorModalTitle">Confirm &amp; Generate</h2>
-      <button type="button" class="btn-ghost" data-close-modal>Close</button>
-    </div>
-
-    <div class="modal-body" id="tailorModalBody">
-      <p class="hint" id="tailorJobLine"></p>
-
-      <div class="notice notice-warn" id="injectionNotice" hidden>
-        <strong>Injection patterns were neutralized in this posting.</strong>
-        <span id="injectionRules"></span>
-        The redacted text below is what Claude Code will actually receive.
-      </div>
-      <div class="notice" id="htmlNotice" hidden>
-        This board returned the description as HTML; it has been converted to plain text for the prompt.
-      </div>
-
-      <p class="hint">
-        This is the exact input Claude Code will receive. Nothing is written to disk until you confirm.
-        The draft will be written to <code id="outputPathText"></code>.
-      </p>
-      <pre class="prompt-preview" id="promptPreview"></pre>
-    </div>
-
-    <div class="modal-foot">
-      <span class="hint" id="tailorStatus"></span>
-      <button type="button" class="btn-ghost" data-close-modal>Cancel</button>
-      <button type="button" class="btn-primary" id="confirmGenerate">Confirm &amp; Generate</button>
-    </div>
-  </div>
-</div>
+<!-- The "Confirm & Generate" prompt-preview modal used to sit here. Clicking
+     Tailor on a row is now the approval itself and downloads the .md directly;
+     the injection-sanitizer warning it used to show arrives as a toast, and the
+     traceability flags live in the draft-review modal below. -->
 
 <!-- ====== Draft review: traceability flags + override audit trail (req. 23) ====== -->
 <div class="modal-backdrop" id="draftModal" hidden>
@@ -306,6 +293,7 @@
     <div class="modal-foot">
       <span class="hint" id="draftStatus"></span>
       <button type="button" class="btn-ghost" data-close-modal>Close</button>
+      <button type="button" class="btn-ghost" id="downloadFromDraft">Download .md</button>
       <button type="button" class="btn-primary" id="markAppliedFromDraft">Mark applied</button>
     </div>
   </div>

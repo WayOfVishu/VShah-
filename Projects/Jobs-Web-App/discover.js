@@ -24,7 +24,7 @@ import { buildDedupIndex, findDuplicate, addToIndex } from "./lib/dedup.js";
 import { recordSourceSuccess, recordSourceFailure } from "./lib/sourceHealth.js";
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { loadPreferences } from "./lib/preferences.js";
-import { ingestGate, buildAppliedIndex, isAlreadyApplied } from "./lib/jobFilter.js";
+import { ingestGate, buildAppliedIndex, isAlreadyApplied, EXPERIENCE_CAP_YEARS } from "./lib/jobFilter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // One SQLite file for the whole app: server.js and this CLI are two entry
@@ -209,12 +209,29 @@ async function main() {
   db.pragma("busy_timeout = 5000");
   applyMigrations(db);
 
-  const prefs = loadPreferences();
+  // Copied, not used in place: loadPreferences() hands back a shared cached
+  // object and the age window below is a per-run override, not a config edit.
+  const prefs = { ...loadPreferences() };
+
+  // The dashboard's "Posted ≤ N days" control sets this when the Refresh button
+  // starts the run. Without it the ingest window was pinned to
+  // preferences.json's maxAgeDays no matter what the UI showed, so widening the
+  // filter only ever widened the *display* — the postings it was meant to admit
+  // had already been rejected as stale before they reached the database.
+  const rawMaxAge = process.env.DISCOVER_MAX_AGE_DAYS;
+  if (rawMaxAge !== undefined && rawMaxAge !== "") {
+    const n = Number(rawMaxAge);
+    // 0 is the UI's "Any age"; isFresh() compares against it numerically, so
+    // Infinity is the honest spelling of no upper bound.
+    if (Number.isFinite(n) && n >= 0) prefs.maxAgeDays = n === 0 ? Infinity : n;
+  }
+  const ageLabel = prefs.maxAgeDays === Infinity ? "any age" : `posted within ${prefs.maxAgeDays}d`;
+
   const summary = { fetched: 0, duplicates: 0, inserted: 0, rejected: {}, failures: [] };
   const ingest = makeIngestor(db, summary, prefs);
 
   console.log(
-    `Filters: posted within ${prefs.maxAgeDays}d · ` +
+    `Filters: ${ageLabel} · ` +
       `${Object.entries(prefs.locationWeights).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" / ")} · ` +
       `off-list locations ${prefs.offListLocations === "drop" ? "dropped" : "kept"}`
   );
@@ -235,9 +252,10 @@ async function main() {
   // keyword list that is too narrow is distinguishable from a location list
   // that is too narrow.
   const REJECT_LABELS = {
-    stale: `older than ${prefs.maxAgeDays}d`,
+    stale: `older than ${prefs.maxAgeDays === Infinity ? "the age limit" : `${prefs.maxAgeDays}d`}`,
     "off-role": "title matched no role keyword",
     seniority: "senior / staff / intern title",
+    experience: `asks for more than ${EXPERIENCE_CAP_YEARS} years' experience`,
     "off-location": "location off your list",
     applied: "already in your applied log",
   };

@@ -30,16 +30,6 @@ const dEls = {
   empty: document.getElementById("discoveredEmpty"),
   loadMore: document.getElementById("loadMore"),
 
-  tailorModal: document.getElementById("tailorModal"),
-  tailorJobLine: document.getElementById("tailorJobLine"),
-  injectionNotice: document.getElementById("injectionNotice"),
-  injectionRules: document.getElementById("injectionRules"),
-  htmlNotice: document.getElementById("htmlNotice"),
-  outputPathText: document.getElementById("outputPathText"),
-  promptPreview: document.getElementById("promptPreview"),
-  tailorStatus: document.getElementById("tailorStatus"),
-  confirmGenerate: document.getElementById("confirmGenerate"),
-
   draftModal: document.getElementById("draftModal"),
   draftPathLine: document.getElementById("draftPathLine"),
   traceOk: document.getElementById("traceOk"),
@@ -50,6 +40,7 @@ const dEls = {
   baseResumeText: document.getElementById("baseResumeText"),
   draftStatus: document.getElementById("draftStatus"),
   markAppliedFromDraft: document.getElementById("markAppliedFromDraft"),
+  downloadFromDraft: document.getElementById("downloadFromDraft"),
 };
 
 // PRD Goal 7: uncapped discovery must not become a wall of rows. The live run
@@ -132,21 +123,26 @@ dEls.tabs.forEach((tab) => {
 // ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
+// Every control in the filter bar is a query parameter — status and the search
+// box included. They used to be re-filtered in the browser over whatever the
+// server had already sent, which meant the two could disagree about how many
+// rows existed and the summary line counted the wrong thing.
+function currentQuery() {
+  const params = new URLSearchParams({
+    status: dEls.statusFilter.value,
+    sort: dEls.sortMode.value,
+    maxAgeDays: dEls.freshness.value,
+    hideApplied: dEls.hideApplied.checked ? "1" : "0",
+  });
+  if (dEls.bucketFilter.value) params.set("bucket", dEls.bucketFilter.value);
+  const q = dEls.search.value.trim();
+  if (q) params.set("q", q);
+  return params;
+}
+
 async function loadDiscovered() {
   try {
-    // Archived rows are hidden by default (req. 31); only fetched when asked for.
-    const params = new URLSearchParams({
-      includeArchived: dEls.statusFilter.value === "archived" ? "1" : "0",
-      sort: dEls.sortMode.value,
-      maxAgeDays: dEls.freshness.value,
-      hideApplied: dEls.hideApplied.checked ? "1" : "0",
-    });
-    // Looking specifically at applied or archived rows means the "hide applied"
-    // default would empty the table out from under you.
-    if (["applied", "archived"].includes(dEls.statusFilter.value)) params.set("hideApplied", "0");
-    if (dEls.bucketFilter.value) params.set("bucket", dEls.bucketFilter.value);
-
-    const payload = await api(`/api/discovered?${params}`);
+    const payload = await api(`/api/discovered?${currentQuery()}`);
     discovered = payload.jobs;
     feedMeta = payload.meta;
     visibleCount = PAGE_SIZE;
@@ -271,7 +267,16 @@ function watchRun() {
 dEls.refresh.addEventListener("click", async () => {
   dEls.refresh.disabled = true;
   try {
-    renderRun(await api("/api/discover", { method: "POST" }));
+    // The freshness control sets the run's ingest window too, not just the
+    // table's. Sending it here is what makes widening the filter actually go
+    // and fetch the older postings it now admits.
+    renderRun(
+      await api("/api/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxAgeDays: Number(dEls.freshness.value) }),
+      })
+    );
     watchRun();
   } catch (err) {
     dEls.runPanel.hidden = false;
@@ -303,25 +308,6 @@ api("/api/discover/status")
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-function filtered() {
-  const q = dEls.search.value.trim().toLowerCase();
-  const status = dEls.statusFilter.value;
-
-  return discovered.filter((job) => {
-    if (status === "active") {
-      // The default: rows that still need a decision from the user.
-      if (!["new", "queued", "generating", "tailored"].includes(job.status)) return false;
-    } else if (status !== "all" && job.status !== status) {
-      return false;
-    }
-    if (!q) return true;
-    return [job.title, job.company, job.location, (job.sources || []).join(" ")]
-      .join(" ")
-      .toLowerCase()
-      .includes(q);
-  });
-}
-
 function actionsFor(job) {
   const btn = (action, label, cls = "") =>
     `<button type="button" class="row-action ${cls}" data-action="${action}" data-id="${job.id}">${label}</button>`;
@@ -330,11 +316,18 @@ function actionsFor(job) {
     case "new":
       return btn("tailor", "Tailor", "primary") + btn("dismiss", "Dismiss") + btn("apply", "Applied");
     case "queued":
-      return btn("tailor", "Review &amp; generate", "primary") + btn("reject", "Reject") + btn("apply", "Applied");
+      return btn("tailor", "Tailor", "primary") + btn("reject", "Reject") + btn("apply", "Applied");
     case "generating":
-      return '<span class="hint">working…</span>';
+      return '<span class="row-working"><span class="row-spinner"></span>Tailoring…</span>';
     case "tailored":
-      return btn("draft", "View draft", "primary") + btn("apply", "Applied") + btn("dismiss", "Dismiss");
+      // Download first: the draft already exists, so re-downloading it should
+      // not mean re-running a two-minute generation.
+      return (
+        btn("download", "Download", "primary") +
+        btn("draft", "Review") +
+        btn("apply", "Applied") +
+        btn("dismiss", "Dismiss")
+      );
     case "rejected":
     case "dismissed":
       return btn("reset", "Restore");
@@ -352,15 +345,24 @@ function actionsFor(job) {
 // switching to "Any age" still told you to widen a filter you'd already
 // widened. Build it from the live filter state instead.
 function emptyStateMessage() {
+  const q = dEls.search.value.trim();
+  if (q) return `Nothing matches &ldquo;${esc(q)}&rdquo; under the current filters.`;
+
   const freshnessLabel = dEls.freshness.options[dEls.freshness.selectedIndex].textContent;
   let msg = `No discovered postings match these filters. Hit <strong>Refresh job searches</strong> to pull new ones`;
-  if (dEls.freshness.value !== "0") msg += `, widen &ldquo;${esc(freshnessLabel)}&rdquo;`;
+  if (dEls.freshness.value !== "0") {
+    msg +=
+      `, widen &ldquo;${esc(freshnessLabel)}&rdquo; and refresh again ` +
+      `(the freshness filter sets how far back the next run looks)`;
+  }
   msg += `, or edit <code>config/preferences.json</code>.`;
   return msg;
 }
 
 function renderDiscovered(animate = true) {
-  const rows = filtered();
+  // The server has already applied every filter in the bar, so this renders
+  // what it returned rather than filtering a second time over the same rows.
+  const rows = discovered;
   const shown = rows.slice(0, visibleCount);
 
   dEls.body.innerHTML = shown
@@ -435,9 +437,15 @@ function renderDiscovered(animate = true) {
   dEls.count.hidden = needsDecision === 0;
 }
 
+// Search is a server query now, so it is debounced rather than fired on every
+// keystroke — the request runs over the whole table, not just the loaded page.
+let searchTimer = null;
 dEls.search.addEventListener("input", () => {
-  visibleCount = PAGE_SIZE;
-  renderDiscovered(false);
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    visibleCount = PAGE_SIZE;
+    loadDiscovered();
+  }, 220);
 });
 dEls.statusFilter.addEventListener("change", () => {
   visibleCount = PAGE_SIZE;
@@ -461,7 +469,10 @@ dEls.body.addEventListener("click", async (e) => {
   try {
     switch (button.dataset.action) {
       case "tailor":
-        await openTailorModal(job);
+        await tailorAndDownload(job, button);
+        break;
+      case "download":
+        downloadDraft(job.id);
         break;
       case "draft":
         await openDraftModal(job);
@@ -522,61 +533,68 @@ async function markApplied(job) {
 }
 
 // ---------------------------------------------------------------------------
-// The approval gate (req. 21-22)
+// Tailoring — generate and hand back the file (req. 21-22)
 // ---------------------------------------------------------------------------
-async function openTailorModal(job) {
-  activeJob = job;
-  dEls.tailorStatus.textContent = "";
-  dEls.confirmGenerate.disabled = false;
-  dEls.tailorJobLine.textContent = `${job.title} — ${job.company}${job.location ? ` (${job.location})` : ""}`;
-  dEls.promptPreview.textContent = "Building preview…";
-  dEls.tailorModal.hidden = false;
-
-  try {
-    const preview = await api(`/api/discovered/${job.id}/preview`);
-    dEls.promptPreview.textContent = preview.prompt;
-    dEls.outputPathText.textContent = preview.outputPath;
-
-    // req. 24: tell the user their posting was scrubbed rather than silently
-    // changing what they're approving.
-    const s = preview.sanitization || {};
-    dEls.injectionNotice.hidden = !s.injectionDetected;
-    dEls.injectionRules.textContent = s.injectionDetected ? ` Rules fired: ${s.triggered.join(", ")}.` : "";
-    dEls.htmlNotice.hidden = !s.htmlStripped;
-  } catch (err) {
-    dEls.promptPreview.textContent = `Could not build the prompt: ${err.message}`;
-    dEls.confirmGenerate.disabled = true;
-  }
+// Clicking "Tailor" is the approval. It names one posting and generates against
+// that posting only; the state machine still refuses to reach `tailored` by any
+// other route. What it no longer does is make the user read a prompt preview
+// and click a second confirm button to get to the same place.
+//
+// The two things that preview *did* carry — the injection-sanitizer warning
+// (req. 24) and the traceability flags (req. 23) — come back with the response
+// and are surfaced as toasts, so removing the screen does not remove the
+// signals. "Review" on a tailored row still opens the full flag view.
+function downloadDraft(id) {
+  // A real navigation to an endpoint that sets Content-Disposition, so the
+  // browser names the file from the server rather than from a blob URL.
+  const a = document.createElement("a");
+  a.href = `/api/discovered/${id}/draft/download`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
-dEls.confirmGenerate.addEventListener("click", async () => {
-  if (!activeJob) return;
-  const job = activeJob;
-  dEls.confirmGenerate.disabled = true;
+async function tailorAndDownload(job, button) {
+  const cell = button.closest(".row-actions");
+  const previous = cell.innerHTML;
+  // The call is a live Claude Code invocation — minutes, not milliseconds. The
+  // row has to show that it is working or the click reads as a no-op.
+  cell.innerHTML = '<span class="row-working"><span class="row-spinner"></span>Tailoring…</span>';
 
   try {
-    // The row must be `queued` before it can be tailored — that's the state
-    // machine's gate, so a `new` row is queued by this same confirming click.
-    if (job.status === "new") await api(`/api/discovered/${job.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "queued" }),
-    });
-
-    dEls.tailorStatus.textContent = "Generating — this can take a couple of minutes…";
     const result = await api(`/api/discovered/${job.id}/tailor`, { method: "POST" });
+    if (!result.ok) throw new Error(result.error || "Tailoring failed.");
 
-    dEls.tailorModal.hidden = true;
-    await loadDiscovered();
-    const updated = discovered.find((j) => j.id === job.id);
-    if (updated) await openDraftModal(updated);
+    downloadDraft(job.id);
+
+    const sanitization = result.sanitization || {};
+    const flagged = (result.traceability?.flagged || []).length;
+
+    if (flagged > 0) {
+      showToast(
+        `Resume downloaded — but ${flagged} line(s) could not be traced to your base resume. ` +
+          `Open “Review” on this row before you send it.`,
+        { type: "warn", duration: 8000 }
+      );
+    } else {
+      showToast(`Tailored resume downloaded for ${job.company}.`, { type: "success" });
+    }
+    // req. 24: never let a scrubbed posting pass silently.
+    if (sanitization.injectionDetected) {
+      showToast(
+        `Heads up: injection patterns were neutralized in this posting before it reached Claude ` +
+          `(${(sanitization.triggered || []).join(", ")}).`,
+        { type: "warn", duration: 8000 }
+      );
+    }
   } catch (err) {
     // req. 28: the row is already back to `queued` server-side; surface why.
-    dEls.tailorStatus.textContent = `Failed: ${err.message}`;
-    dEls.confirmGenerate.disabled = false;
-    await loadDiscovered();
+    cell.innerHTML = previous;
+    showToast(`Tailoring failed: ${err.message}`, { type: "error", duration: 8000 });
   }
-});
+  await loadDiscovered();
+}
 
 // ---------------------------------------------------------------------------
 // Draft review — traceability flags and the override audit trail (req. 23)
@@ -663,6 +681,10 @@ dEls.flagList.addEventListener("click", async (e) => {
   } catch (err) {
     dEls.draftStatus.textContent = err.message;
   }
+});
+
+dEls.downloadFromDraft.addEventListener("click", () => {
+  if (activeJob) downloadDraft(activeJob.id);
 });
 
 dEls.markAppliedFromDraft.addEventListener("click", async () => {
