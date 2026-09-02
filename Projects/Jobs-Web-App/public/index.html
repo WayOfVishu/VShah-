@@ -195,26 +195,34 @@
         <option value="archived">Archived</option>
       </select>
       <select id="sortMode" aria-label="Feed ordering">
-        <option value="mix" selected>Balanced mix</option>
-        <option value="score">Best match first</option>
+        <option value="score" selected>Best match first</option>
+        <option value="mix">Balanced mix</option>
         <option value="recent">Newest first</option>
       </select>
       <!-- Drives both the on-screen filter and the next discovery run's ingest
-           window — see startDiscoveryRun() in server.js. -->
-      <select id="freshness" aria-label="Posted within">
-        <option value="3" selected>Posted ≤ 3 days</option>
-        <option value="7">Posted ≤ 7 days</option>
-        <option value="14">Posted ≤ 14 days</option>
-        <option value="0">Any age</option>
-      </select>
-      <select id="bucketFilter" aria-label="Filter by location">
-        <option value="" selected>All locations</option>
-        <option value="calgary">Calgary</option>
-        <option value="edmonton">Edmonton</option>
-        <option value="remote">Remote</option>
-        <option value="vancouver">Vancouver</option>
-        <option value="seattle">Seattle</option>
-      </select>
+           window — see startDiscoveryRun() in server.js.
+
+           Deliberately empty: the options and the selected one are built by
+           initFreshness() in discovered.js from the saved preference. Listing
+           them here with one marked `selected` is what used to make the
+           control boot to 3 days regardless of what was saved, and then
+           overwrite the saved value on the next Refresh. -->
+      <select id="freshness" aria-label="Posted within"></select>
+      <!-- Locations are multi-select, so "Calgary + Remote" is one view rather
+           than two passes. A native <select multiple> needs ctrl-click and
+           renders as a scrolling box that breaks the filter bar's grid, so
+           this is a button that opens a checkbox popover instead.
+
+           Deliberately empty: the checkboxes are built by initControls() in
+           discovered.js from the locations actually in preferences.json, so
+           removing a location from your weights removes it here too. -->
+      <div class="multi-select" id="bucketFilter">
+        <button type="button" class="multi-select-toggle" id="bucketToggle"
+                aria-haspopup="true" aria-expanded="false" aria-label="Filter by location">
+          <span id="bucketLabel">All locations</span>
+        </button>
+        <div class="multi-select-panel" id="bucketPanel" hidden role="group" aria-label="Locations"></div>
+      </div>
       <label class="filter-toggle">
         <input type="checkbox" id="hideApplied" checked />
         <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
@@ -249,7 +257,7 @@
     </div>
     <p class="empty-state" id="discoveredEmpty" hidden>
       No discovered postings match these filters. Hit <strong>Refresh job searches</strong> to pull new ones,
-      widen “Posted ≤ 3 days”, or edit <code>config/preferences.json</code>.
+      or widen the “Posted within” filter above.
     </p>
   </section>
 </main>

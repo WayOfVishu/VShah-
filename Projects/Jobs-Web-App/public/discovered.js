@@ -24,6 +24,9 @@ const dEls = {
   sortMode: document.getElementById("sortMode"),
   freshness: document.getElementById("freshness"),
   bucketFilter: document.getElementById("bucketFilter"),
+  bucketToggle: document.getElementById("bucketToggle"),
+  bucketPanel: document.getElementById("bucketPanel"),
+  bucketLabel: document.getElementById("bucketLabel"),
   hideApplied: document.getElementById("hideApplied"),
   mixSummary: document.getElementById("mixSummary"),
   summary: document.getElementById("discoveredSummary"),
@@ -121,6 +124,135 @@ dEls.tabs.forEach((tab) => {
 });
 
 // ---------------------------------------------------------------------------
+// The freshness control
+// ---------------------------------------------------------------------------
+// One number governs how far back the app looks, and this control is where it
+// is chosen. It is used in three places — the on-screen filter, the ingest
+// window of the next discovery run, and what gets saved to preferences.json —
+// and all three now read the same value from here.
+//
+// The windows on offer. 0 means no limit; the saved value is added to this
+// list if it is not already one of them, so a hand-edited preferences.json
+// still shows up correctly rather than silently resetting.
+const FRESHNESS_WINDOWS = [3, 7, 14];
+
+function freshnessLabelFor(days) {
+  return days === 0 ? "Any age" : `Posted ≤ ${days} days`;
+}
+
+// Builds the dropdown from the saved preference. Nothing here invents a
+// default: whatever is stored is what gets selected, and if the server cannot
+// be reached the control still renders so the page is usable.
+// Which location buckets the feed is restricted to. Empty means all of them.
+const selectedBuckets = new Set();
+
+// Builds the location checkboxes from the buckets that actually exist in
+// preferences.json, rather than a second hard-coded list in the markup — the
+// same reason the freshness options are built rather than written out. Drop a
+// location from your weights and it disappears from here too.
+function buildBucketFilter(locationWeights = {}) {
+  const names = Object.keys(locationWeights);
+  dEls.bucketPanel.replaceChildren(
+    ...names.map((bucket) => {
+      const label = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = bucket;
+      box.addEventListener("change", () => {
+        if (box.checked) selectedBuckets.add(bucket);
+        else selectedBuckets.delete(bucket);
+        renderBucketLabel();
+        visibleCount = PAGE_SIZE;
+        loadDiscovered();
+      });
+      label.append(box, document.createTextNode(BUCKET_LABELS[bucket] || bucket));
+      return label;
+    })
+  );
+
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "multi-select-clear";
+  clear.textContent = "All locations";
+  clear.addEventListener("click", () => {
+    selectedBuckets.clear();
+    dEls.bucketPanel.querySelectorAll("input").forEach((i) => (i.checked = false));
+    renderBucketLabel();
+    visibleCount = PAGE_SIZE;
+    loadDiscovered();
+  });
+  dEls.bucketPanel.append(clear);
+  renderBucketLabel();
+}
+
+function renderBucketLabel() {
+  const chosen = [...selectedBuckets].map((b) => BUCKET_LABELS[b] || b);
+  const text = chosen.length === 0 ? "All locations" : chosen.join(", ");
+  dEls.bucketLabel.textContent = text;
+  // The button truncates with an ellipsis, so the full selection lives in the
+  // tooltip rather than being lost.
+  dEls.bucketToggle.title = chosen.length ? `Locations: ${text}` : "All locations";
+}
+
+const setBucketPanelOpen = (open) => {
+  dEls.bucketPanel.hidden = !open;
+  dEls.bucketToggle.setAttribute("aria-expanded", String(open));
+};
+
+dEls.bucketToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setBucketPanelOpen(dEls.bucketPanel.hidden);
+});
+// Clicking inside the panel must not close it — every click in there is a
+// checkbox the user is still working through.
+dEls.bucketPanel.addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => setBucketPanelOpen(false));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") setBucketPanelOpen(false);
+});
+
+// Whether the saved preferences were actually read. If they were not, the
+// freshness control is showing a fallback rather than the user's choice, and
+// must not be allowed to write that fallback back to disk — a momentarily
+// unreachable server would otherwise turn into a silently changed setting the
+// next time any control moved.
+let prefsLoaded = false;
+
+async function initControls() {
+  let saved = null;
+  let locationWeights = {};
+  try {
+    ({ maxAgeDays: saved, locationWeights = {} } = await api("/api/preferences"));
+    prefsLoaded = true;
+  } catch {
+    // Leave `saved` null — "Any age" — rather than guessing a window and
+    // hiding postings the user never asked to hide.
+  }
+  buildBucketFilter(locationWeights);
+  const selected = saved === null ? 0 : Number(saved);
+  const windows = FRESHNESS_WINDOWS.includes(selected) || selected === 0
+    ? FRESHNESS_WINDOWS
+    : [...FRESHNESS_WINDOWS, selected].sort((a, b) => a - b);
+
+  dEls.freshness.replaceChildren(
+    ...[...windows, 0].map((days) => {
+      const opt = document.createElement("option");
+      opt.value = String(days);
+      opt.textContent = freshnessLabelFor(days);
+      opt.selected = days === selected;
+      return opt;
+    })
+  );
+}
+
+// Started at load rather than when the Discovered tab is first opened, so the
+// controls are already showing the saved window and locations by the time
+// anyone looks at them. loadDiscovered() awaits it, so no request can go out
+// reading an unpopulated control — which would send an empty maxAgeDays and
+// silently mean "any age".
+const controlsReady = initControls();
+
+// ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
 // Every control in the filter bar is a query parameter — status and the search
@@ -134,13 +266,16 @@ function currentQuery() {
     maxAgeDays: dEls.freshness.value,
     hideApplied: dEls.hideApplied.checked ? "1" : "0",
   });
-  if (dEls.bucketFilter.value) params.set("bucket", dEls.bucketFilter.value);
+  // Comma-separated so several locations can be viewed at once; the server
+  // turns it back into an IN (...) clause.
+  if (selectedBuckets.size) params.set("bucket", [...selectedBuckets].join(","));
   const q = dEls.search.value.trim();
   if (q) params.set("q", q);
   return params;
 }
 
 async function loadDiscovered() {
+  await controlsReady;
   try {
     const payload = await api(`/api/discovered?${currentQuery()}`);
     discovered = payload.jobs;
@@ -190,11 +325,35 @@ dEls.dismissBanner.addEventListener("click", () => {
   dEls.banner.hidden = true;
 });
 
-// Sorting, freshness, bucket and hide-applied are all applied server-side, so
-// each needs a refetch rather than a re-render.
-[dEls.sortMode, dEls.freshness, dEls.bucketFilter, dEls.hideApplied].forEach((el) =>
-  el.addEventListener("change", loadDiscovered)
-);
+// Sorting and hide-applied are applied server-side, so each needs a refetch
+// rather than a re-render. (The location filter is not a <select> any more —
+// its checkboxes refetch themselves; see buildBucketFilter.)
+[dEls.sortMode, dEls.hideApplied].forEach((el) => el.addEventListener("change", loadDiscovered));
+
+// Freshness is the one control that outlives the page. Saving it on change is
+// what makes the window you picked the window the next discovery run ingests
+// with, and the one still selected after a reload.
+dEls.freshness.addEventListener("change", async () => {
+  if (!prefsLoaded) {
+    // Filter the view, but do not persist: this control never learned what the
+    // saved window was, so writing its value would overwrite a real setting
+    // with a fallback.
+    showToast("Preferences could not be loaded — this filter applies to the view only.", { type: "error" });
+    await loadDiscovered();
+    return;
+  }
+  try {
+    await api("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maxAgeDays: Number(dEls.freshness.value) }),
+    });
+  } catch (err) {
+    // Saving failed, but the filter should still apply to what is on screen.
+    showToast(`Could not save the freshness window: ${err.message}`, { type: "error" });
+  }
+  await loadDiscovered();
+});
 
 // ---------------------------------------------------------------------------
 // Discovery runs
@@ -267,16 +426,10 @@ function watchRun() {
 dEls.refresh.addEventListener("click", async () => {
   dEls.refresh.disabled = true;
   try {
-    // The freshness control sets the run's ingest window too, not just the
-    // table's. Sending it here is what makes widening the filter actually go
-    // and fetch the older postings it now admits.
-    renderRun(
-      await api("/api/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxAgeDays: Number(dEls.freshness.value) }),
-      })
-    );
+    // No body: the freshness window was already saved when it was chosen, and
+    // discover.js reads it from preferences.json itself. Widening the filter
+    // and hitting Refresh still fetches the older postings it now admits.
+    renderRun(await api("/api/discover", { method: "POST" }));
     watchRun();
   } catch (err) {
     dEls.runPanel.hidden = false;

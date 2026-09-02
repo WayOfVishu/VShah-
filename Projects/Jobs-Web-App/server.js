@@ -150,14 +150,15 @@ const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
 //   q=text                  substring match on title / company / location /
 //                           source. Runs over the whole table, not just the
 //                           rows a client happens to be holding.
-//   sort=mix|score|recent   mix (default) interleaves buckets in your
-//                           configured location proportions; score is a flat
-//                           best-first ranking; recent is newest-first.
+//   sort=mix|score|recent   score (default) is a flat best-first ranking; mix
+//                           interleaves buckets in your configured location
+//                           proportions; recent is newest-first.
 //   maxAgeDays=N            posted within N days; 0 disables the filter.
 //                           Defaults to preferences.maxAgeDays - a one-off
 //                           override for browsing, not a config edit.
 //   hideApplied=0           include roles already in your applied log.
-//   bucket=calgary          restrict to one location bucket.
+//   bucket=calgary,remote   restrict to these location buckets. Comma-
+//                           separated; omit for all of them.
 //
 // The freshness filter lives here rather than only at ingest because a row
 // ingested three days ago is stale today - the database is a log, and the feed
@@ -167,21 +168,33 @@ const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
 app.get("/api/discovered", (req, res) => {
   const prefs = loadPreferences();
   const status = req.query.status || "active";
-  const sort = ["mix", "score", "recent"].includes(req.query.sort) ? req.query.sort : "mix";
+  const sort = ["mix", "score", "recent"].includes(req.query.sort) ? req.query.sort : "score";
   const maxAgeDays =
     req.query.maxAgeDays === undefined ? prefs.maxAgeDays : Number(req.query.maxAgeDays);
   // Asking to see applied or archived rows and then hiding them would empty the
   // table out from under the request, so the narrower filter wins.
   const hideApplied = req.query.hideApplied !== "0" && !["applied", "archived"].includes(status);
 
+  // `bucket` is a comma-separated list: the location filter is multi-select,
+  // so "Calgary + Remote" is one request rather than two.
+  const buckets = String(req.query.bucket || "")
+    .split(",")
+    .map((b) => b.trim())
+    .filter(Boolean);
+
   const where = [];
-  const params = { bucket: req.query.bucket || null, status };
+  const params = { status };
   if (status === "active") where.push(`status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(", ")})`);
   else if (status === "all") where.push("status != 'archived'");
   else where.push("status = @status");
 
   if (hideApplied) where.push("status != 'applied'");
-  if (req.query.bucket) where.push("location_bucket = @bucket");
+  if (buckets.length) {
+    // Bound as named parameters rather than interpolated — these arrive
+    // straight off the query string.
+    buckets.forEach((b, i) => (params[`bucket${i}`] = b));
+    where.push(`location_bucket IN (${buckets.map((_, i) => `@bucket${i}`).join(", ")})`);
+  }
 
   let rows = db
     .prepare(
@@ -521,17 +534,53 @@ app.post("/api/discover", (req, res) => {
       .status(400)
       .json({ error: 'config/sources.json not found. Run "npm run bootstrap-sources" first.' });
   }
-  const requested = Number((req.body || {}).maxAgeDays);
-  if (Number.isFinite(requested) && requested >= 0) {
-    // 0 is the UI's "Any age"; stored as null since Infinity isn't valid JSON
-    // (loadPreferences() converts it back on read).
-    savePreferences({ maxAgeDays: requested === 0 ? null : requested });
-  }
+  // No freshness value is read from the request any more. The control saves
+  // its own choice through POST /api/preferences the moment it changes, and
+  // discover.js calls loadPreferences() itself, so the run already uses the
+  // selected window. Accepting it here as well gave two writers for one value.
   startDiscoveryRun();
   res.status(202).json(runState());
 });
 
 app.get("/api/discover/status", (req, res) => res.json(runState()));
+
+// The stored preferences the dashboard's controls need to render themselves.
+//
+// This exists so the freshness dropdown can be *built* from the saved value
+// instead of shipping its own default. The markup used to hard-code
+// `<option value="3" selected>`, which meant the control always booted to 3
+// days no matter what was saved — and because the Refresh button persists
+// whatever the control reads, that invented 3 overwrote the stored value on
+// every run. The number you pick is now the only number in play.
+// The only writer of the freshness window. The control persists a change the
+// moment it is made, so the value survives a page reload and the next
+// discovery run reads the same one — rather than the window being a
+// browser-session thing that a run had to be told about separately.
+app.post("/api/preferences", (req, res) => {
+  const requested = (req.body || {}).maxAgeDays;
+  if (requested === undefined) {
+    return res.status(400).json({ error: "maxAgeDays is required." });
+  }
+  const days = Number(requested);
+  if (!Number.isFinite(days) || days < 0) {
+    return res.status(400).json({ error: "maxAgeDays must be a number of days, or 0 for no limit." });
+  }
+  // 0 is the UI's "Any age"; stored as null since Infinity isn't valid JSON
+  // (loadPreferences() converts it back on read).
+  const prefs = savePreferences({ maxAgeDays: days === 0 ? null : days });
+  res.json({ maxAgeDays: Number.isFinite(prefs.maxAgeDays) ? prefs.maxAgeDays : null });
+});
+
+app.get("/api/preferences", (req, res) => {
+  const prefs = loadPreferences({ reload: true });
+  res.json({
+    // Infinity is not valid JSON; null is how "no age limit" travels, the same
+    // way it is stored (see savePreferences).
+    maxAgeDays: Number.isFinite(prefs.maxAgeDays) ? prefs.maxAgeDays : null,
+    archiveAfterDays: prefs.archiveAfterDays,
+    locationWeights: prefs.locationWeights,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // API — CSV export (every column, for spreadsheet-side analysis)
