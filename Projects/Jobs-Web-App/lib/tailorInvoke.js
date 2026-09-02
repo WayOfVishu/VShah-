@@ -138,6 +138,7 @@ export async function tailorJob(db, id, opts = {}) {
       ok: false,
       job: db.prepare("SELECT * FROM discovered_jobs WHERE id = ?").get(id),
       error: message,
+      sanitization: built.sanitization,
       stdout: result.stdout,
     };
   };
@@ -178,5 +179,15 @@ export async function tailorJob(db, id, opts = {}) {
     tailor_error: null,
   });
 
-  return { ok: true, job: updated, draftPath: built.outputPath, traceability, stdout: result.stdout };
+  // `sanitization` rides along because the caller no longer sees it in a
+  // preview step — req. 24's "the posting was scrubbed" signal has to reach the
+  // user somewhere, and this is now the only place it can come from.
+  return {
+    ok: true,
+    job: updated,
+    draftPath: built.outputPath,
+    traceability,
+    sanitization: built.sanitization,
+    stdout: result.stdout,
+  };
 }

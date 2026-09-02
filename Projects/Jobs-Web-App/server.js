@@ -10,9 +10,10 @@ import { transition, USER_TRIGGERABLE } from "./lib/statusMachine.js";
 import { buildTailoringPrompt } from "./lib/promptBuild.js";
 import { checkTraceability } from "./lib/traceabilityCheck.js";
 import { tailorJob } from "./lib/tailorInvoke.js";
+import { renderMarkdownToPdf } from "./lib/pdfExport.js";
 import { loadPreferences } from "./lib/preferences.js";
 import { weightedMix } from "./lib/scoring.js";
-import { isFresh, buildAppliedIndex, isAlreadyApplied } from "./lib/jobFilter.js";
+import { isFresh, buildAppliedIndex, isAlreadyApplied, exceedsExperienceCap } from "./lib/jobFilter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -137,9 +138,18 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
+// Rows that still need a decision from the user — the default view.
+const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
+
 // The discovered feed. Archived rows are hidden by default (req. 31).
 //
 // Query params, all optional:
+//   status=active|all|<one status>
+//                           active (default) is the needs-a-decision set;
+//                           all is everything except archived.
+//   q=text                  substring match on title / company / location /
+//                           source. Runs over the whole table, not just the
+//                           rows a client happens to be holding.
 //   sort=mix|score|recent   mix (default) interleaves buckets in your
 //                           configured location proportions; score is a flat
 //                           best-first ranking; recent is newest-first.
@@ -150,17 +160,24 @@ const handle = (fn) => async (req, res) => {
 //
 // The freshness filter lives here rather than only at ingest because a row
 // ingested three days ago is stale today - the database is a log, and the feed
-// is a view over it.
+// is a view over it. (The ingest window itself is set per-run from the same
+// control; see startDiscoveryRun.)
 app.get("/api/discovered", (req, res) => {
   const prefs = loadPreferences();
-  const includeArchived = req.query.includeArchived === "1";
-  const hideApplied = req.query.hideApplied !== "0";
+  const status = req.query.status || "active";
   const sort = ["mix", "score", "recent"].includes(req.query.sort) ? req.query.sort : "mix";
   const maxAgeDays =
     req.query.maxAgeDays === undefined ? prefs.maxAgeDays : Number(req.query.maxAgeDays);
+  // Asking to see applied or archived rows and then hiding them would empty the
+  // table out from under the request, so the narrower filter wins.
+  const hideApplied = req.query.hideApplied !== "0" && !["applied", "archived"].includes(status);
 
   const where = [];
-  if (!includeArchived) where.push("status != 'archived'");
+  const params = { bucket: req.query.bucket || null, status };
+  if (status === "active") where.push(`status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(", ")})`);
+  else if (status === "all") where.push("status != 'archived'");
+  else where.push("status = @status");
+
   if (hideApplied) where.push("status != 'applied'");
   if (req.query.bucket) where.push("location_bucket = @bucket");
 
@@ -170,9 +187,16 @@ app.get("/api/discovered", (req, res) => {
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY match_score IS NULL, match_score DESC, first_seen_at DESC, id DESC`
     )
-    .all({ bucket: req.query.bucket || null });
+    .all(params);
 
   const total = rows.length;
+
+  const q = String(req.query.q || "").trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((row) =>
+      [row.title, row.company, row.location, row.sources].join(" ").toLowerCase().includes(q)
+    );
+  }
 
   // Freshness in JS rather than SQL: posted_date arrives in whatever format
   // each board emits, and isFresh() already knows how to fall back to
@@ -180,6 +204,11 @@ app.get("/api/discovered", (req, res) => {
   if (Number.isFinite(maxAgeDays) && maxAgeDays > 0) {
     rows = rows.filter((row) => isFresh(row, { maxAgeDays }));
   }
+
+  // Same reasoning as the freshness filter above: rows ingested before this
+  // gate existed (or whose description changed since) still need to be kept
+  // out of the feed, not just future ones.
+  rows = rows.filter((row) => !exceedsExperienceCap(row));
 
   // Roles logged by hand in the applied log, which never passed through the
   // discovery flow and so still read as 'new' here.
@@ -200,6 +229,8 @@ app.get("/api/discovered", (req, res) => {
       total,
       shown: rows.length,
       sort,
+      status,
+      query: q || null,
       maxAgeDays: Number.isFinite(maxAgeDays) && maxAgeDays > 0 ? maxAgeDays : null,
       hideApplied,
       locationWeights: prefs.locationWeights,
@@ -258,16 +289,53 @@ app.post("/api/discovered/:id/status", handle((req, res) => {
   res.json(asRow(transition(db, req.params.id, to)));
 }));
 
-// req. 21-22: "Confirm & Generate". The single approval gate — task 1.0
-// established there is no second, tool-level prompt behind this one.
+// req. 21-22: the approval gate. Clicking "Tailor" on a row *is* the
+// confirmation — it names one specific posting, and nothing generates without
+// it — so the row is queued here rather than in a second preview step the user
+// has to click through. `tailorJob` still refuses anything that isn't `queued`,
+// so the state machine remains the thing enforcing it (PRD §8), not this
+// handler's good manners.
+//
+// What the removed preview used to surface — that the sanitizer scrubbed
+// injection patterns out of a posting (req. 24) — comes back in the response
+// so the caller can still show it. It must not become invisible just because
+// the screen it lived on is gone.
 app.post("/api/discovered/:id/tailor", handle(async (req, res) => {
+  const row = db.prepare("SELECT id, status FROM discovered_jobs WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Discovered job not found." });
+  if (row.status === "new") transition(db, row.id, "queued");
+
   const result = await tailorJob(db, req.params.id);
   res.status(result.ok ? 200 : 502).json({
     ok: result.ok,
     job: asRow(result.job),
     error: result.error || null,
     traceability: result.traceability || null,
+    sanitization: result.sanitization || null,
   });
+}));
+
+// The tailored draft as a file download. The dashboard hits this straight after
+// a successful generation, so "Tailor" ends with a file in the user's
+// downloads rather than in a modal they have to copy out of.
+//
+// Converted to PDF on the way out, not at generation time: application forms
+// take PDF, not the .md Claude writes, and rendering on demand means an
+// applicant who hand-edits the draft on disk still gets the current content,
+// not a stale snapshot from generation time.
+app.get("/api/discovered/:id/draft/download", handle(async (req, res) => {
+  const row = db.prepare("SELECT * FROM discovered_jobs WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Discovered job not found." });
+  if (!row.resume_path) return res.status(404).json({ error: "No tailored draft for this job yet." });
+  if (!existsSync(row.resume_path)) {
+    return res.status(410).json({ error: `Draft file is missing from disk: ${row.resume_path}` });
+  }
+  const markdown = readFileSync(row.resume_path, "utf8");
+  const pdf = await renderMarkdownToPdf(markdown);
+  const filename = `${path.basename(row.resume_path, ".md")}.pdf`;
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(pdf);
 }));
 
 // req. 23 / §6: the draft plus its flagged lines, returned together with the
@@ -386,8 +454,16 @@ const MAX_LOG_LINES = 400;
 
 let run = null;
 
-function startDiscoveryRun() {
-  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env: process.env });
+function startDiscoveryRun({ maxAgeDays } = {}) {
+  // The freshness control is a filter on the *run*, not just on the table. The
+  // ingest gate drops a stale posting before it is ever written, so a widened
+  // filter that never reached discover.js could not surface anything the
+  // previous, narrower run had already discarded.
+  const env = { ...process.env };
+  if (Number.isFinite(maxAgeDays) && maxAgeDays >= 0) {
+    env.DISCOVER_MAX_AGE_DAYS = String(maxAgeDays);
+  }
+  const child = spawn(process.execPath, [DISCOVER_SCRIPT], { cwd: __dirname, env });
 
   run = {
     status: "running",
@@ -447,7 +523,8 @@ app.post("/api/discover", (req, res) => {
       .status(400)
       .json({ error: 'config/sources.json not found. Run "npm run bootstrap-sources" first.' });
   }
-  startDiscoveryRun();
+  const requested = Number((req.body || {}).maxAgeDays);
+  startDiscoveryRun({ maxAgeDays: Number.isFinite(requested) ? requested : undefined });
   res.status(202).json(runState());
 });
 

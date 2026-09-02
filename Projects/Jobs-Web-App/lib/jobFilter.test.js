@@ -6,6 +6,8 @@ import {
   ageInDays,
   matchesRole,
   isExcludedBySeniority,
+  maxRequiredYears,
+  exceedsExperienceCap,
   ingestGate,
   buildAppliedIndex,
   isAlreadyApplied,
@@ -85,6 +87,36 @@ test("a seniority word inside a longer word does not trigger", () => {
   assert.equal(isExcludedBySeniority({ title: "Leadership Program Software Engineer" }, prefs), false);
 });
 
+// --- experience cap ---------------------------------------------------------
+
+test("reads the real Top Hat phrasing (space before the plus)", () => {
+  assert.equal(maxRequiredYears("You are:\n\n• 3 + years of experience in full-stack software development."), 3);
+});
+
+test("takes the top of a stated range", () => {
+  assert.equal(maxRequiredYears("1-2+ years of experience in analytics, data engineering, or similar work."), 2);
+});
+
+test("catches 'experience' stated before the years figure, not just after", () => {
+  assert.equal(maxRequiredYears("Minimum experience needed of 3+ years as a full stack developer."), 3);
+});
+
+test("a years mention with no 'experience' nearby is not a requirement", () => {
+  assert.equal(maxRequiredYears("Top Hat has served 750+ universities for over 10 years."), null);
+});
+
+test("no description means no known requirement", () => {
+  assert.equal(maxRequiredYears(null), null);
+  assert.equal(maxRequiredYears(""), null);
+});
+
+test("2 years or less clears the cap; anything higher does not", () => {
+  assert.equal(exceedsExperienceCap({ description: "1+ years of experience required." } ), false);
+  assert.equal(exceedsExperienceCap({ description: "2+ years of experience required." } ), false);
+  assert.equal(exceedsExperienceCap({ description: "3+ years of experience required." } ), true);
+  assert.equal(exceedsExperienceCap({ description: "at least 7 years of industry experience." } ), true);
+});
+
 // --- the ingest gate -------------------------------------------------------
 
 const fresh = (over) => ({
@@ -115,6 +147,10 @@ test("each rejection reports why", () => {
   assert.deepEqual(
     ingestGate(fresh({ title: "TIG Welder (Starship) - Level 4/5" }), prefs, NOW),
     { keep: false, reason: "off-role" }
+  );
+  assert.deepEqual(
+    ingestGate(fresh({ description: "You are: 3+ years of experience in full-stack development." }), prefs, NOW),
+    { keep: false, reason: "experience" }
   );
   assert.deepEqual(
     ingestGate(fresh({ location: "Toronto, ON" }), prefs, NOW),
