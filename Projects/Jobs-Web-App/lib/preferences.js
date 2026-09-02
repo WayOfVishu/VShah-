@@ -2,7 +2,7 @@
 // separate from sources.json because scripts/bootstrap-sources.js rewrites
 // that file wholesale and would otherwise wipe these settings.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,7 +12,20 @@ const PREFS_PATH = process.env.JOB_PREFS_PATH || path.join(__dirname, "..", "con
 // Mirrors config/preferences.json. Used verbatim when the file is missing, and
 // key-by-key for anything the file leaves out, so a partial config is valid.
 export const DEFAULT_PREFERENCES = {
-  maxAgeDays: 3,
+  // Last resort only — used if config/preferences.json is missing entirely.
+  // The live value is whatever the dashboard's "Posted within" control is set
+  // to, which is saved here the moment it changes. Nothing else may invent a
+  // window: this used to be duplicated as a hard-coded `selected` option in
+  // index.html, and the two disagreed.
+  //
+  // null means no age limit. Failing open is deliberate — with no config, the
+  // wrong thing to do is silently hide postings behind a number the user never
+  // chose, which is the failure this default caused before.
+  maxAgeDays: null,
+  // How long a posting nobody acted on stays in the feed before the run sweeps
+  // it to `archived`. Separate from maxAgeDays: that is about how old a
+  // posting was when found, this is about how long we keep showing it.
+  archiveAfterDays: 60,
   roleKeywords: ["software engineer", "software developer", "data engineer", "machine learning engineer", "developer"],
   levelKeywords: ["new grad", "new graduate", "entry level", "junior"],
   gradKeywords: ["new grad", "new graduate", "recent graduate", "graduate program", "early talent"],
@@ -47,8 +60,39 @@ export function loadPreferences({ reload = false } = {}) {
   cached = {
     ...DEFAULT_PREFERENCES,
     ...clean,
-    locationWeights: { ...DEFAULT_PREFERENCES.locationWeights, ...(clean.locationWeights || {}) },
+    // locationWeights is taken verbatim when the file supplies it, NOT merged
+    // over the defaults. Merging made a location impossible to remove: delete
+    // "seattle" from the file and the default put it straight back, so the
+    // bucket kept resolving and Seattle postings kept being ingested and
+    // scored. The set of locations is a list the user owns, and an empty slot
+    // in it means "not this one", not "fall back to mine".
+    locationWeights: clean.locationWeights || DEFAULT_PREFERENCES.locationWeights,
+    // scoreWeights is a fixed pair rather than a set — a missing half means
+    // "leave that half alone", so merging is the right behaviour here.
     scoreWeights: { ...DEFAULT_PREFERENCES.scoreWeights, ...(clean.scoreWeights || {}) },
   };
+  // "No age limit" isn't valid JSON as Infinity, so it round-trips through
+  // `null` on disk (see savePreferences) and is restored here.
+  if (cached.maxAgeDays === null) cached.maxAgeDays = Infinity;
   return cached;
+}
+
+// Merges `updates` into config/preferences.json on disk and refreshes the
+// in-memory cache, so a value set from the dashboard (e.g. the Refresh
+// button's freshness window) is the same one discover.js's ingest gate,
+// this process's own /api/discovered default, and scripts/rescore.js all see
+// afterward - one stored value instead of a run-only override that only
+// discover.js ever heard about.
+//
+// Top-level merge only: every other key (including the `_`-prefixed inline
+// docs) is preserved untouched.
+export function savePreferences(updates) {
+  let onDisk = {};
+  if (existsSync(PREFS_PATH)) {
+    onDisk = JSON.parse(readFileSync(PREFS_PATH, "utf8"));
+  }
+  const next = { ...onDisk, ...updates };
+  writeFileSync(PREFS_PATH, JSON.stringify(next, null, 2) + "\n");
+  cached = null;
+  return loadPreferences();
 }

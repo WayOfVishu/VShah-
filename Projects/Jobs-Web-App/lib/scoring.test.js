@@ -210,3 +210,64 @@ test("unknown-location rows sort after the mix, never inside it", () => {
   const mixed = weightedMix(jobs, prefs);
   assert.equal(mixed[mixed.length - 1].id, "u1");
 });
+
+// --- US detection, and the words that are not countries ---------------------
+
+test("the word \"or\" is not Oregon and \"CA\" is not California", () => {
+  // Both used to fire: `\bor\b` made "Remote or Hybrid" a US posting and
+  // `\bca\b` made the Canadian country code in "Vancouver, BC, CA" one too,
+  // penalising the Canadian remote roles this search depends on.
+  for (const location of ["Remote or Hybrid", "Vancouver, BC, CA", "Toronto, ON, CA", "Remote, Canada"]) {
+    const job = { title: "Software Engineer", location, remote_status: "remote", description: "Build with us." };
+    assert.equal(isUnsponsoredUS(job, "remote", prefs), false, location);
+  }
+});
+
+test("a genuinely US-located remote role is still caught", () => {
+  for (const location of ["Remote, Seattle, WA", "Remote (Colorado)", "Remote — United States"]) {
+    const job = { title: "Software Engineer", location, remote_status: "remote", description: "Build things." };
+    assert.equal(isUnsponsoredUS(job, "remote", prefs), true, location);
+  }
+});
+
+// --- the remote bucket now means remote *he can take* -----------------------
+
+test("a hybrid posting does not occupy the remote bucket", () => {
+  const job = {
+    title: "Software Engineer",
+    location: "Remote",
+    remote_status: "remote",
+    description: "Hybrid role — 3 days per week in the office.",
+  };
+  assert.equal(locationBucket(job, prefs), null);
+});
+
+test("a hybrid posting in Calgary is still a Calgary job", () => {
+  // Hybrid is only a problem when the office is one you cannot drive to.
+  const job = {
+    title: "Software Engineer",
+    location: "Calgary, AB — Hybrid",
+    description: "Hybrid role — 3 days per week in the office.",
+  };
+  assert.equal(locationBucket(job, prefs), "calgary");
+});
+
+test("US-only remote does not occupy the remote bucket", () => {
+  const job = {
+    title: "Software Engineer",
+    location: "Remote",
+    remote_status: "remote",
+    description: "This role is US-based. Must reside in the United States.",
+  };
+  assert.equal(locationBucket(job, prefs), null);
+});
+
+test("remote across Canada does occupy the remote bucket", () => {
+  const job = {
+    title: "Software Engineer",
+    location: "Remote - Canada",
+    remote_status: "remote",
+    description: "Work from anywhere in Canada.",
+  };
+  assert.equal(locationBucket(job, prefs), "remote");
+});
