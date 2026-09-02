@@ -347,7 +347,19 @@ function actionsFor(job) {
   }
 }
 
-function renderDiscovered() {
+// The empty state used to be a hardcoded line of HTML naming "Posted ≤ 3
+// days" regardless of which freshness filter was actually active — so
+// switching to "Any age" still told you to widen a filter you'd already
+// widened. Build it from the live filter state instead.
+function emptyStateMessage() {
+  const freshnessLabel = dEls.freshness.options[dEls.freshness.selectedIndex].textContent;
+  let msg = `No discovered postings match these filters. Hit <strong>Refresh job searches</strong> to pull new ones`;
+  if (dEls.freshness.value !== "0") msg += `, widen &ldquo;${esc(freshnessLabel)}&rdquo;`;
+  msg += `, or edit <code>config/preferences.json</code>.`;
+  return msg;
+}
+
+function renderDiscovered(animate = true) {
   const rows = filtered();
   const shown = rows.slice(0, visibleCount);
 
@@ -386,8 +398,11 @@ function renderDiscovered() {
         </tr>`;
     })
     .join("");
+  if (animate) staggerRows(dEls.body);
+  else [...dEls.body.children].forEach((row) => (row.style.animation = "none"));
 
   dEls.empty.hidden = rows.length > 0;
+  if (rows.length === 0) dEls.empty.innerHTML = emptyStateMessage();
   dEls.loadMore.hidden = rows.length <= visibleCount;
 
   // The count the server filtered down from matters as much as what survived:
@@ -422,7 +437,7 @@ function renderDiscovered() {
 
 dEls.search.addEventListener("input", () => {
   visibleCount = PAGE_SIZE;
-  renderDiscovered();
+  renderDiscovered(false);
 });
 dEls.statusFilter.addEventListener("change", () => {
   visibleCount = PAGE_SIZE;
@@ -451,22 +466,30 @@ dEls.body.addEventListener("click", async (e) => {
       case "draft":
         await openDraftModal(job);
         break;
-      case "reject":
-        if (!confirm("Reject this posting? It won't be offered for tailoring again unless you restore it.")) return;
+      case "reject": {
+        const ok = await confirmDialog(
+          "Reject this posting? It won't be offered for tailoring again unless you restore it.",
+          { title: "Reject posting?", confirmLabel: "Reject", danger: true }
+        );
+        if (!ok) return;
         await setStatus(id, "rejected");
+        showToast("Rejected — moved out of your feed.", { type: "success" });
         break;
+      }
       case "dismiss":
         await setStatus(id, "dismissed");
+        showToast("Dismissed.", { type: "info" });
         break;
       case "reset":
         await setStatus(id, "new");
+        showToast("Restored to New.", { type: "success" });
         break;
       case "apply":
         await markApplied(job);
         break;
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { type: "error" });
   }
 });
 
@@ -482,12 +505,17 @@ async function setStatus(id, status) {
 // req. 32: creates the row in the existing applied log, pre-filled, and links
 // the two records. Refreshes the applied view so it shows up there immediately.
 async function markApplied(job) {
-  if (!confirm(`Log an application to ${job.title} at ${job.company}?`)) return;
+  const ok = await confirmDialog(`Log an application to ${job.title} at ${job.company}?`, {
+    title: "Mark as applied?",
+    confirmLabel: "Log application",
+  });
+  if (!ok) return;
   await api(`/api/discovered/${job.id}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
+  showToast(`Logged application to ${job.company}.`, { type: "success" });
   await loadDiscovered();
   // app.js owns the applied log; ask it to reload rather than duplicating it.
   if (typeof window.reloadJobs === "function") window.reloadJobs();

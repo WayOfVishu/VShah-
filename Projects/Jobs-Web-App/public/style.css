@@ -63,6 +63,7 @@ a { color: var(--accent); }
   font-size: 1.5rem;
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 .clock-label {
   font-size: 0.7rem;
@@ -158,8 +159,11 @@ a { color: var(--accent); }
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.92rem;
+  transition: transform 0.12s ease, filter 0.12s ease, background-color 0.12s ease;
 }
 .btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:active { transform: scale(0.96); }
+.btn-primary.btn-danger { background: var(--danger); color: #2a0d07; }
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--line);
@@ -169,8 +173,10 @@ a { color: var(--accent); }
   cursor: pointer;
   font-size: 0.88rem;
   text-decoration: none;
+  transition: color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+.btn-ghost:active { transform: scale(0.96); }
 
 /* ---------- Heatmap (GitHub-contribution style, grows with your history) ---------- */
 .heatmap {
@@ -188,7 +194,9 @@ a { color: var(--accent); }
   background: var(--panel-2);
   border: 1px solid var(--line);
   flex: none;
+  transition: transform 0.1s ease;
 }
+.heatmap .cell:hover { transform: scale(1.4); position: relative; z-index: 1; }
 .heatmap .cell[data-future="1"] { opacity: 0.35; }
 .heatmap .cell.l1 { background: #3a3324; }
 .heatmap .cell.l2 { background: #5c4a1e; }
@@ -228,6 +236,12 @@ a { color: var(--accent); }
 }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+
+/* Staggered entrance for a freshly-rebuilt <tbody> (see ui.js staggerRows).
+   Skipped on typing-driven re-renders so search doesn't replay it. */
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+#logBody tr, #discoveredBody tr { animation: rowIn 0.26s ease both; }
+tr { transition: background-color 0.12s ease; }
 th {
   text-align: left;
   color: var(--muted);
@@ -263,8 +277,10 @@ tr:hover td { background: var(--panel-2); }
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.15rem 0.4rem;
+  transition: color 0.12s ease, transform 0.12s ease;
 }
 .row-actions button:hover { color: var(--text); }
+.row-actions button:active { transform: scale(0.94); }
 
 .empty-state { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
 
@@ -305,6 +321,7 @@ tr:hover td { background: var(--panel-2); }
   align-items: center;
   gap: 0.45rem;
 }
+.view-tab { transition: color 0.15s ease, border-color 0.15s ease; }
 .view-tab:hover { color: var(--text); }
 .view-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-count {
@@ -376,8 +393,10 @@ tr:hover td { background: var(--panel-2); }
   padding: 0.2rem 0.5rem;
   margin-right: 0.25rem;
   white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease, transform 0.12s ease;
 }
 .row-action:hover { color: var(--text); border-color: var(--muted); }
+.row-action:active { transform: scale(0.95); }
 .row-action.primary { color: var(--accent); border-color: #e2a33b66; }
 .row-action.primary:hover { background: var(--accent-dim); }
 
@@ -391,6 +410,7 @@ tr:hover td { background: var(--panel-2); }
   justify-content: center;
   padding: 2rem 1rem;
   z-index: 50;
+  animation: backdropIn 0.15s ease both;
 }
 .modal {
   background: var(--panel);
@@ -400,8 +420,12 @@ tr:hover td { background: var(--panel-2); }
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+  animation: modalIn 0.18s cubic-bezier(.2, .8, .2, 1) both;
 }
 .modal.wide { width: min(1040px, 100%); }
+.modal.confirm-modal { width: min(420px, 100%); }
+@keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 .modal-head, .modal-foot {
   display: flex;
   align-items: center;
@@ -604,4 +628,52 @@ tr:hover td { background: var(--panel-2); }
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ---------- Toasts (replaces alert()) ---------- */
+.toast-stack {
+  position: fixed;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 100;
+  max-width: 340px;
+}
+.toast {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  box-shadow: 0 8px 24px #00000066;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+.toast.is-visible { opacity: 1; transform: translateY(0) scale(1); }
+.toast-success { border-left-color: var(--green); }
+.toast-error { border-left-color: var(--danger); }
+.toast-info { border-left-color: var(--teal); }
+
+@media (max-width: 500px) {
+  .toast-stack { left: 1rem; right: 1rem; max-width: none; }
+}
+
+/* Scoped reduced-motion: turns off the entrance/decorative animations above
+   without touching the refresh spinner's own reduced-motion handling. */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .modal-backdrop,
+  .modal-backdrop .modal,
+  #logBody tr,
+  #discoveredBody tr,
+  .heatmap .cell {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+  }
 }
