@@ -19,6 +19,12 @@ import { transition } from "./statusMachine.js";
 
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min: a full resume is a slower call than the spike's one-liner
 
+// Pinned rather than left to the CLI's own default: tailoring quality matters
+// more than latency here, and an account-level default can silently change
+// (or silently downgrade under load) without this file changing at all.
+// Override with CLAUDE_TAILOR_MODEL for local experiments (e.g. "opus").
+const DEFAULT_MODEL = "sonnet";
+
 // Same resolution order as scripts/spike-claude-invoke.js — this machine has
 // Claude Code as a VS Code extension rather than a standalone CLI on PATH.
 export function findClaudeBinary() {
@@ -41,6 +47,9 @@ function runClaude(prompt, { cwd, draftsDir, timeoutMs }) {
     const args = [
       "-p",
       prompt,
+      // Pinned to Sonnet for tailoring specifically — see DEFAULT_MODEL.
+      "--model",
+      process.env.CLAUDE_TAILOR_MODEL || DEFAULT_MODEL,
       // Scoped exactly as PRD §9 records: write access, and only into the
       // drafts directory. Never --allow-dangerously-skip-permissions.
       "--allowedTools",
