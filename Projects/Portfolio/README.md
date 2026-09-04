@@ -4,7 +4,7 @@ My professional portfolio. A FastAPI backend, a Vite + vanilla-JS frontend, and
 a hand-written WebGL field behind the hero.
 
 ```
-cd backend  && py -m venv .venv && ./.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+cd backend  && py -m venv .venv && ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 cd frontend && npm install
 ```
 
@@ -63,7 +63,6 @@ Portfolio/
 │   │   ├── demos/remote.py  the remote classifier (real logic, see below)
 │   │   └── routers/         content.py, demos.py
 │   ├── requirements.txt     runtime deps
-│   ├── requirements-dev.txt adds pytest + httpx
 │   └── run.py               entry point
 └── frontend/
     ├── index.html           structural shell only; sections are filled by JS
@@ -100,7 +99,10 @@ the boilerplate trap, the pronoun trap ("build things with us" is not the
 United States), Canada-or-US, and so on.
 
 **If the classifier changes in the Jobs Web App, change it here too.** The
-patterns are the contract between the two.
+patterns are the contract between the two, and nothing enforces it
+automatically — the parity was checked by hand at the time of the port. If the
+two ever disagree, the demo is quietly lying about how the real pipeline
+behaves, so re-check it by eye after any edit to either side.
 
 The second panel (telemetry readout) is openly labelled *simulated* — the real
 diagnostics engine reads `/proc`, which a browser does not have.
@@ -128,11 +130,3 @@ there should never be. Case studies exist only for projects I own outright.
 - `prefers-reduced-motion` collapses every transition to ~0s and resolves
   reveals to their final state rather than leaving content invisible.
 - Demo input is escaped before it reaches `innerHTML`; site copy is trusted.
-
----
-
-## Tests
-
-```
-cd backend && ./.venv/Scripts/python.exe -m pytest
-```
