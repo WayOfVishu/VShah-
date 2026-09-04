@@ -1,8 +1,0 @@
--r requirements.txt
-
-# Test-only. httpx is what starlette's TestClient drives the app through
-# without binding a socket; it is also the client the Riot API work will use
-# later, so it graduates to requirements.txt at that point rather than being
-# added twice.
-pytest>=8.0
-httpx>=0.27
