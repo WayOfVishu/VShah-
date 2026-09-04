@@ -96,13 +96,21 @@ async function api(url, options) {
   return body;
 }
 
+// SQLite datetime('now') gives "YYYY-MM-DD HH:MM:SS" in UTC and needs the T and
+// the zone put back; every other shape here (ISO 8601 from a JSON API, RFC 2822
+// from an RSS feed) already carries its own offset and is passed through. Same
+// test as parseDate() in lib/jobFilter.js, so the server sorts on exactly the
+// date this renders.
 function shortDateTime(value) {
   if (!value) return "–";
-  // SQLite datetime('now') gives "YYYY-MM-DD HH:MM:SS" in UTC.
-  const iso = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const text = String(value).trim();
+  const iso = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text) ? `${text.replace(" ", "T")}Z` : text;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (Number.isNaN(d.getTime())) return text;
+  // The year is always shown. Boards leave postings up across years, and
+  // "Sep 1" alone gives no way to tell last year's from this year's — which is
+  // the one thing the newest-first ordering is meant to make obvious.
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 // ---------------------------------------------------------------------------
