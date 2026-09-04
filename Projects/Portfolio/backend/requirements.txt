@@ -1,0 +1,14 @@
+# --- core (v1) ---
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+
+# Nothing else yet. Content is JSON on disk and the remote-classifier demo is
+# pure `re` from the standard library, so there is deliberately no database
+# driver and no ORM here — adding one before there is state to keep would be
+# infrastructure in search of a problem.
+
+# --- later, when the models land ---
+# scikit-learn>=1.5   # stocks forecaster inference
+# pandas>=2.2         # both forecaster and LoL matchup aggregation
+# httpx>=0.27         # Riot API client for the build suggestor

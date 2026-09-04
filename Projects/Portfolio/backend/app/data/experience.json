@@ -1,0 +1,78 @@
+[
+  {
+    "id": "pembina-doe",
+    "org": "Pembina Pipeline Corporation",
+    "role": "Data Operations Engineering Intern",
+    "location": "Calgary, AB",
+    "start": "2026-05",
+    "end": null,
+    "current": true,
+    "proprietary": true,
+    "domain": "Data Platform",
+    "blurb": "Owned the company's first production Fivetran deployment, from connector framework design through pipeline health.",
+    "highlights": [
+      { "tag": "AI Automation",  "text": "Architected a self-initiated Fivetran-to-Databricks pipeline with a self-service web app, enabling agentic Claude-driven tag automation on a scheduled routine." },
+      { "tag": "Framework",      "text": "Engineered a modular Fivetran connector framework in Python, consolidating per-source pipelines into a configurable system that cut onboarding and validation from days to hours." },
+      { "tag": "Connectors",     "text": "Shipped 5+ production ingestion pipelines with pagination, authentication, incremental sync, and high-volume ingestion of 100K-1M+ records per source." },
+      { "tag": "Reliability",    "text": "Added retry handling for transient failures (HTTP 500s, expired 403 tokens) and state management for sync resumption; served as primary point of contact for pipeline health." },
+      { "tag": "Infra",          "text": "Contributed to a DataHub lineage POC on Kubernetes, stress-testing connection and memory limits and fixing real OOM failures at the pod and container config level." }
+    ],
+    "stack": ["Python", "Fivetran SDK", "Databricks", "Kubernetes", "DataHub", "SQL"]
+  },
+  {
+    "id": "cpkc-capstone",
+    "org": "CPKC Railroad x University of Calgary",
+    "role": "Computer Vision Lead (Capstone)",
+    "location": "Calgary, AB",
+    "start": "2025-09",
+    "end": "2026-04",
+    "current": false,
+    "proprietary": true,
+    "domain": "Edge ML",
+    "blurb": "Led the computer vision workstream for a real-time railway signal classifier running on constrained edge hardware.",
+    "highlights": [
+      { "tag": "Edge Pipeline",  "text": "Engineered an edge-based ML inference solution using YOLOv8 to classify signals in real time on a Raspberry Pi 4." },
+      { "tag": "Efficiency",     "text": "Cut inference invocations roughly 60-70% by gating the model behind MAD frame-difference change detection." },
+      { "tag": "Reliability",    "text": "Eliminated false flashing detections with a 4-batch majority vote and strict alternating-sequence confirmation, reaching near-zero false positives in field simulation." },
+      { "tag": "Preprocessing",  "text": "Built a 6-stage image pipeline (crop, denoise, sharpen, white balance, gamma, CLAHE) with objects precomputed at import time to hold down per-frame latency." }
+    ],
+    "stack": ["Python", "YOLOv8", "OpenCV", "Raspberry Pi 4"]
+  },
+  {
+    "id": "pembina-sap-analyst",
+    "org": "Pembina Pipeline Corporation",
+    "role": "SAP Data Analyst",
+    "location": "Calgary, AB",
+    "start": "2024-09",
+    "end": "2025-12",
+    "current": false,
+    "proprietary": true,
+    "domain": "Data Warehousing",
+    "note": "Retained and promoted from internship based on performance.",
+    "blurb": "Took over a departed specialist's scope and rebuilt a multi-year manual workflow into an automated warehouse pipeline.",
+    "highlights": [
+      { "tag": "Ownership",   "text": "Stepped up after a specialist's departure to independently design and implement a SQL data warehousing and extraction pipeline across SAP SCM and Finance, automating a multi-year manual workflow and delivering six-figure annual operational savings." },
+      { "tag": "Optimization","text": "Improved SAP BW/4HANA model performance by 40% across 10+ models through query optimization, indexing, and execution plan tuning." },
+      { "tag": "Automation",  "text": "Co-developed and deployed an internal LLM search agent using conversational RAG, now serving 100+ enterprise users monthly." },
+      { "tag": "Innovation",  "text": "Built 5+ interactive SAC widgets dynamically in JavaScript, configurable by chart type and theme." }
+    ],
+    "stack": ["SQL", "SAP BW/4HANA", "SAP ABAP", "JavaScript", "RAG"]
+  },
+  {
+    "id": "pembina-sap-intern",
+    "org": "Pembina Pipeline Corporation",
+    "role": "SAP Intern",
+    "location": "Calgary, AB",
+    "start": "2024-05",
+    "end": "2024-08",
+    "current": false,
+    "proprietary": true,
+    "domain": "Analytics",
+    "blurb": "First tour at Pembina: dashboards, support, and a large reporting cleanup.",
+    "highlights": [
+      { "tag": "Dashboards", "text": "Designed SAP Analytics Cloud dashboards for real-time operational analysis and managed technical support requests end to end." },
+      { "tag": "Consolidation", "text": "Consolidated 150+ reports into a centralized self-service analytics catalogue." }
+    ],
+    "stack": ["SAP Analytics Cloud", "SQL"]
+  }
+]
