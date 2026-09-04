@@ -1,0 +1,26 @@
+{
+  "education": [
+    {
+      "school": "University of Calgary",
+      "credential": "Software Engineering",
+      "location": "Calgary, AB",
+      "end": "12/2026",
+      "notes": ["Dean's List (2020 - 2022)", "Alexander Rutherford & Jason Lang Scholarship"]
+    },
+    {
+      "school": "University of Calgary",
+      "credential": "General Business",
+      "location": "Calgary, AB",
+      "end": "12/2024",
+      "notes": ["Combined double major with Software Engineering"]
+    }
+  ],
+  "notable": [
+    {
+      "title": "RBC Fast Pitch Finalist",
+      "detail": "Pitched a startup concept at the RBC undergraduate entrepreneurship competition.",
+      "url": "https://youtu.be/_amrfwEMDak?t=617",
+      "linkLabel": "Watch the pitch"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# --- python ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- node / vite ---
+node_modules/
+dist/
+*.local
+
+# --- env ---
+.env
+.env.*
+!.env.example
+
+# --- editors / os ---
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,94 @@
+/* Design tokens.
+ *
+ * Deliberately continuous with the Jobs Web App's palette — same amber signal,
+ * same charcoal, same three typefaces — because these are two instruments on
+ * the same panel and they should read that way. The background here is pushed
+ * darker (#0c0e13 vs #14161c) so panels separate from it without needing
+ * borders everywhere, and a violet is added as a fourth categorical colour for
+ * the skills matrix.
+ */
+
+:root {
+  /* ---- surfaces ---- */
+  --bg: #0c0e13;
+  --bg-2: #10131a;
+  --panel: #14171f;
+  --panel-2: #1a1e28;
+  --panel-3: #212633;
+  --line: #242936;
+  --line-bright: #343b4c;
+
+  /* ---- ink ---- */
+  --text: #e9ebf0;
+  --text-2: #b9c0cd;
+  --muted: #7f8798;
+  --faint: #59616f;
+
+  /* ---- signal ---- */
+  --accent: #e2a33b;
+  --accent-2: #f2c072;
+  --accent-dim: rgba(226, 163, 59, 0.14);
+  --accent-line: rgba(226, 163, 59, 0.32);
+
+  --teal: #4fb0a5;
+  --teal-dim: rgba(79, 176, 165, 0.14);
+  --green: #5fb87e;
+  --danger: #e1614c;
+  --danger-dim: rgba(225, 97, 76, 0.14);
+  --violet: #8b7fd4;
+
+  /* ---- type ---- */
+  --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Mono', ui-monospace, monospace;
+
+  /* Fluid scale — one clamp per step, so nothing needs a breakpoint. */
+  --t-hero: clamp(2.6rem, 9vw, 7rem);
+  --t-h2: clamp(1.6rem, 3.6vw, 2.6rem);
+  --t-h3: clamp(1.15rem, 2vw, 1.5rem);
+  --t-body: clamp(0.95rem, 1.05vw, 1.05rem);
+  --t-sm: 0.85rem;
+  --t-xs: 0.72rem;
+  --t-mono: 0.74rem;
+
+  /* ---- geometry ---- */
+  --radius: 12px;
+  --radius-sm: 7px;
+  --shell: 1240px;
+  --gutter: clamp(1.15rem, 4vw, 3rem);
+  --section-gap: clamp(5rem, 12vh, 9rem);
+
+  /* ---- motion ---- */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur: 0.55s;
+  --dur-fast: 0.22s;
+
+  /* ---- depth ---- */
+  --shadow: 0 18px 44px -22px rgba(0, 0, 0, 0.9);
+  --shadow-lift: 0 26px 60px -26px rgba(0, 0, 0, 0.95);
+}
+
+/* Status colours, keyed by project state, used in several places. */
+:root {
+  --status-active: var(--green);
+  --status-building: var(--accent);
+  --status-planned: var(--faint);
+}
+
+/* Anyone who has asked for less motion gets the layout without the movement.
+ * Reveals resolve to their final state rather than never firing. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0.001s;
+    --dur-fast: 0.001s;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
