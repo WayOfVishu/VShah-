@@ -1,0 +1,49 @@
+[
+  {
+    "group": "Machine Learning & MLOps",
+    "key": "ml",
+    "items": [
+      { "name": "Agentic AI / LLM Orchestration", "level": 4 },
+      { "name": "OpenCV", "level": 4 },
+      { "name": "YOLOv8", "level": 4 },
+      { "name": "TensorFlow", "level": 3 },
+      { "name": "scikit-learn", "level": 3 },
+      { "name": "Edge inference", "level": 4 },
+      { "name": "Model optimization", "level": 3 }
+    ]
+  },
+  {
+    "group": "Data Engineering",
+    "key": "data",
+    "items": [
+      { "name": "Fivetran Connector SDK", "level": 5 },
+      { "name": "Databricks", "level": 4 },
+      { "name": "Airflow", "level": 3 },
+      { "name": "dbt", "level": 3 },
+      { "name": "REST APIs", "level": 5 },
+      { "name": "ETL pipelines", "level": 5 }
+    ]
+  },
+  {
+    "group": "Cloud & Infrastructure",
+    "key": "infra",
+    "items": [
+      { "name": "Kubernetes", "level": 3 },
+      { "name": "Docker", "level": 4 },
+      { "name": "Azure PostgreSQL", "level": 3 },
+      { "name": "Git", "level": 5 },
+      { "name": "SAP Business Data Cloud", "level": 4 }
+    ]
+  },
+  {
+    "group": "Languages",
+    "key": "lang",
+    "items": [
+      { "name": "Python", "level": 5 },
+      { "name": "SQL", "level": 5 },
+      { "name": "JavaScript", "level": 4 },
+      { "name": "C++", "level": 3 },
+      { "name": "SAP ABAP", "level": 3 }
+    ]
+  }
+]

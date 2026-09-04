@@ -1,0 +1,153 @@
+[
+  {
+    "slug": "jobs-workbench",
+    "codename": "JOBS.WORKBENCH",
+    "name": "Jobs Web App",
+    "tagline": "A local job-search workbench that discovers, ranks, tailors, and tracks.",
+    "status": "active",
+    "statusLabel": "Shipped / actively used",
+    "year": "2026",
+    "order": 1,
+    "featured": true,
+    "summary": "One Express server over one SQLite file. It pulls entire public job boards through 11 connectors, puts every posting through five hard gates, scores what survives against a stated location and role preference mix, tailors a resume against the ones I approve, and logs every application I send. No cloud services, no scheduler: it runs when I run it.",
+    "stack": ["Node.js", "Express", "SQLite", "Playwright", "Fuse.js", "Vanilla JS"],
+    "metrics": [
+      { "display": "2,908", "label": "postings from one run over six companies" },
+      { "display": "11", "label": "board connectors (Greenhouse, Lever, Ashby, Workday)" },
+      { "display": "441", "label": "real postings used to validate the remote classifier" },
+      { "display": "12", "label": "unit-tested modules" }
+    ],
+    "links": [{ "label": "Source", "url": "https://github.com/WayOfVishu/VShah-", "kind": "repo" }],
+    "demo": "remote-classifier",
+    "caseStudy": {
+      "problem": "Job boards are optimized for the employer, not the applicant. Tier 1 connectors pull a company's entire public board, and a single run over six companies returned 2,908 postings, topped by \"TIG Welder (Starship), Starbase TX\". Volume is not the hard part. Deciding what is worth reading is.",
+      "approach": [
+        {
+          "head": "Filter before you rank",
+          "body": "A posting is ingested only if it clears all five gates: fresh within the window, title matches a role keyword, no seniority marker (senior / staff / principal / lead / manager / intern), location resolves to one of five targets, and it is not already in the applied log. Each gate reports its own toll, so a too-narrow keyword list stays distinguishable from a too-narrow location list, and from a connector that has quietly broken."
+        },
+        {
+          "head": "Enforce freshness twice",
+          "body": "Once at ingest so stale postings never enter, and again on every read, because a row ingested three days ago is stale today. The database is a log; the feed is a view over it."
+        },
+        {
+          "head": "Score on what you can actually take",
+          "body": "match_score is 65% location, 35% keywords. Calgary and remote both score a flat 1.0, because I am not relocating: those are the two kinds of job I can actually accept. A multi-location posting takes its highest-weighted match, so \"Calgary, AB / Remote\" files as Calgary."
+        },
+        {
+          "head": "Mix, do not rank",
+          "body": "Pure score ordering buries Seattle and Vancouver under Calgary forever. The default feed is composed to stated proportions instead, with each location's rows ordered best-first inside its own share."
+        }
+      ],
+      "deepDive": {
+        "head": "The hybrid problem",
+        "body": "Plenty of postings say \"Remote\" in the location field and \"three days a week in the office\" in the description. Only the description can settle it, so it gets the deciding vote. But the obvious implementation is wrong: a bare match on the word hybrid disqualified all 37 of one employer's genuinely-remote-in-Canada postings, on the strength of a single boilerplate sentence that describes the company, not the job. So the word only counts when it is attached to the role (\"hybrid role\", \"position is hybrid\", \"hybrid (3 days in office)\") or when it appears in the location field, which is the employer's structured statement about this posting. For the same reason a bare \"onsite\" is not a signal at all, since it shows up constantly in unrelated senses like onsite customer visits.",
+        "result": "Measured against 441 real postings from six Canadian employers: 325 claimed remote, 317 were genuinely remote-in-Canada, 6 were hybrid roles in Toronto, and 2 were US-fenced."
+      },
+      "results": [
+        "2,908 raw postings reduced to a readable, ordered feed without hand-tuning per company.",
+        "Remote classifier validated against a 441-posting corpus rather than assumed correct.",
+        "Work-authorization aware: a US-fenced posting that never mentions sponsorship stays visible but has its location score cut to 35%, so it stops consuming the Seattle share.",
+        "Merged two previously separate repos, removing a hand-built file:// URL import that reached across a directory boundary."
+      ],
+      "learned": [
+        "The naive version of a text heuristic will pass your spot checks and fail your corpus. Build the corpus.",
+        "Report per-gate tolls, or you cannot tell a bad config from a broken connector.",
+        "Separating the log from the view over it made freshness a read-time concern, which is where it belongs."
+      ]
+    }
+  },
+  {
+    "slug": "diagnostics-toolkit",
+    "codename": "SYS.DIAGNOSTICS",
+    "name": "System & Network Diagnostics Toolkit",
+    "tagline": "A C++ telemetry engine, a Python orchestrator, and an LLM that explains the result in plain language.",
+    "status": "building",
+    "statusLabel": "In progress",
+    "year": "2026",
+    "order": 2,
+    "featured": true,
+    "summary": "A modular diagnostics tool built deliberately across a language boundary. A C++20 engine reads live system and memory telemetry and hosts an instrumented memory-bug sandbox; a Python layer runs network probes and drives the C++ binary as a subprocess; the merged telemetry goes to an LLM for a plain-language summary and recommendations.",
+    "stack": ["C++20", "CMake", "Python", "Gemini API", "pytest"],
+    "metrics": [
+      { "display": "3", "label": "layers across a process boundary" },
+      { "display": "0", "label": "third-party deps in the network probes" }
+    ],
+    "links": [{ "label": "Source", "url": "https://github.com/WayOfVishu/VShah-", "kind": "repo" }],
+    "demo": "diagnostics-readout",
+    "caseStudy": {
+      "problem": "Diagnostics output is written for the person who already knows what it means. Reading /proc gives you numbers; it does not tell you which number is the reason your machine is slow. I also wanted a real reason to write manual memory management, rather than a toy exercise with no consumer.",
+      "approach": [
+        {
+          "head": "C++ for the part that should be C++",
+          "body": "The engine reads /proc directly into a SystemSnapshot and emits JSON on stdout. It also hosts a deliberately instrumented memory-bug sandbox with raw pointer demos, which is the actual learning core of the project rather than an afterthought."
+        },
+        {
+          "head": "Python for orchestration",
+          "body": "The netdiag layer runs ping, DNS, and port-scan probes and drives the C++ binary as a subprocess, merging both halves into a single telemetry payload."
+        },
+        {
+          "head": "Standard library only, on purpose",
+          "body": "The network probes use nothing but socket, subprocess, and time. Pulling in scapy or raw sockets would have dragged privilege requirements into a project that explicitly scoped them out."
+        },
+        {
+          "head": "The LLM is the last mile, not the product",
+          "body": "A structured prompt turns merged telemetry into a summary, likely causes, and fixes. The analysis layer sits behind the data layer, so the tool still produces a full report when the API is unavailable."
+        }
+      ],
+      "results": [
+        "Repo scaffolding plus both the trivial-plumbing and beyond-baseline pieces are built.",
+        "Core C++ memory management and networking modules are the current open work.",
+        "Scoped into session-sized steps at a 3-4 hour/week pace, tracked in a weekly plan."
+      ],
+      "learned": [
+        "Choosing a subprocess boundary over bindings kept both languages idiomatic and made the C++ side independently testable.",
+        "Writing the charter before the code is what kept the scope from drifting into a monitoring platform."
+      ]
+    }
+  },
+  {
+    "slug": "stocks-forecaster",
+    "codename": "STOCKS.FORECAST",
+    "name": "Stocks Forecaster",
+    "tagline": "An ML forecasting model, served live from this site's own backend.",
+    "status": "planned",
+    "statusLabel": "Next up",
+    "year": "2026",
+    "order": 3,
+    "featured": false,
+    "summary": "A time-series forecasting model over equities data, trained offline and served through a FastAPI inference endpoint. This portfolio runs a Python backend partly so this model has somewhere to live: the demo here will call the real thing, not a recording of it.",
+    "stack": ["Python", "scikit-learn", "pandas", "FastAPI"],
+    "metrics": [],
+    "links": [],
+    "demo": null,
+    "caseStudy": {
+      "problem": "Placeholder, to fill in as the model takes shape: what question the forecast answers, over what horizon, and what baseline it has to beat to be worth anything.",
+      "approach": [],
+      "results": [],
+      "learned": []
+    }
+  },
+  {
+    "slug": "lol-build-suggestor",
+    "codename": "LOL.DRAFTER",
+    "name": "League of Legends Build Suggestor",
+    "tagline": "Matchup-specific and rank-specific item builds, not the one build the whole ladder copies.",
+    "status": "planned",
+    "statusLabel": "Next up",
+    "year": "2026",
+    "order": 4,
+    "featured": false,
+    "summary": "Build recommenders mostly report what is popular, which collapses every matchup into one answer and every rank into the same answer. This one conditions on both: what to build into this specific opponent, at your specific rank, where the game is genuinely played differently.",
+    "stack": ["Python", "Riot API", "pandas", "FastAPI"],
+    "metrics": [],
+    "links": [],
+    "demo": null,
+    "caseStudy": {
+      "problem": "Popularity is not advice. A build with a high global win rate can be the wrong build into a specific matchup, and a build that dominates in Challenger can be unplayable in Gold, where the game has different pacing. Conditioning on matchup and rank at the same time splits the data thin, and handling that split well is the actual problem.",
+      "approach": [],
+      "results": [],
+      "learned": []
+    }
+  }
+]
