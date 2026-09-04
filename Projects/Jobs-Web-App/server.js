@@ -13,7 +13,13 @@ import { tailorJob } from "./lib/tailorInvoke.js";
 import { renderMarkdownToPdf } from "./lib/pdfExport.js";
 import { loadPreferences, savePreferences } from "./lib/preferences.js";
 import { weightedMix } from "./lib/scoring.js";
-import { isFresh, buildAppliedIndex, isAlreadyApplied, exceedsExperienceCap } from "./lib/jobFilter.js";
+import {
+  isFresh,
+  buildAppliedIndex,
+  isAlreadyApplied,
+  exceedsExperienceCap,
+  parseDate,
+} from "./lib/jobFilter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +134,31 @@ app.delete("/api/jobs/:id", (req, res) => {
 // ---------------------------------------------------------------------------
 const asRow = (row) => (row ? { ...row, sources: JSON.parse(row.sources || "[]") } : row);
 
+// Newest-first by the date the table actually shows — posted_date, falling
+// back to first_seen_at when a connector gave none. Sorting on first_seen_at
+// alone put an Aug 4 posting above an Aug 11 one, because a single ingest run
+// stamps every row it brings back with the same second and the tie then fell
+// through to insertion order.
+//
+// Dates are compared as parsed timestamps, not strings: posted_date arrives in
+// whatever format each board emits ("Thu, 14 May 2026 09:14:28 +0000" from an
+// RSS feed, "2026-09-03T19:30:20-04:00" from a JSON API), so a lexical compare
+// across two sources is meaningless. Rows whose date will not parse sort last
+// rather than jumping to the top on a NaN comparison.
+function postedTime(row) {
+  const d = parseDate(row.posted_date) || parseDate(row.first_seen_at);
+  return d ? d.getTime() : null;
+}
+
+function byNewestPosted(a, b) {
+  const ta = postedTime(a);
+  const tb = postedTime(b);
+  if (ta === null && tb === null) return 0;
+  if (ta === null) return 1;
+  if (tb === null) return -1;
+  return tb - ta;
+}
+
 // Wraps a handler so a thrown TransitionError (409) or not-found (404)
 // becomes a clean JSON error instead of an unhandled rejection.
 const handle = (fn) => async (req, res) => {
@@ -152,7 +183,8 @@ const ACTIVE_STATUSES = ["new", "queued", "generating", "tailored"];
 //                           rows a client happens to be holding.
 //   sort=mix|score|recent   score (default) is a flat best-first ranking; mix
 //                           interleaves buckets in your configured location
-//                           proportions; recent is newest-first.
+//                           proportions; recent is newest-first by posted_date
+//                           (first_seen_at when a connector gave no date).
 //   maxAgeDays=N            posted within N days; 0 disables the filter.
 //                           Defaults to preferences.maxAgeDays - a one-off
 //                           override for browsing, not a config edit.
@@ -234,9 +266,7 @@ app.get("/api/discovered", (req, res) => {
 
   rows = rows.map(asRow);
   if (sort === "mix") rows = weightedMix(rows, prefs);
-  else if (sort === "recent") {
-    rows.sort((a, b) => String(b.first_seen_at).localeCompare(String(a.first_seen_at)));
-  }
+  else if (sort === "recent") rows.sort(byNewestPosted);
 
   res.json({
     jobs: rows,
