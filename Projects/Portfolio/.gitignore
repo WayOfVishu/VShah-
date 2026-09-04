@@ -1,5 +1,12 @@
 # --- python ---
+# Virtual environments. Git cannot detect a venv by its contents, so each name
+# has to be listed explicitly — renaming one without adding it here silently
+# dumps ~1,500 files into `git status`.
+/backend/portfolio/
 .venv/
+venv/
+env/
+
 __pycache__/
 *.py[cod]
 .pytest_cache/

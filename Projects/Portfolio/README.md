@@ -4,7 +4,7 @@ My professional portfolio. A FastAPI backend, a Vite + vanilla-JS frontend, and
 a hand-written WebGL field behind the hero.
 
 ```
-cd backend  && py -m venv .venv && ./.venv/Scripts/python.exe -m pip install -r requirements.txt
+cd backend  && py -m venv portfolio && ./portfolio/Scripts/python.exe -m pip install -r requirements.txt
 cd frontend && npm install
 ```
 
@@ -12,12 +12,12 @@ Two processes in development, one in production:
 
 ```
 # dev — API on :8000 with autoreload, site on :5173 with HMR
-cd backend  && ./.venv/Scripts/python.exe run.py
+cd backend  && ./portfolio/Scripts/python.exe run.py
 cd frontend && npm run dev
 
 # production — build the site, then serve everything from one process
 cd frontend && npm run build
-cd backend  && ./.venv/Scripts/python.exe run.py --serve-static
+cd backend  && ./portfolio/Scripts/python.exe run.py --serve-static
 ```
 
 ---
