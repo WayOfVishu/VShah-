@@ -1,6 +1,6 @@
 {
   "name": "Vihang Shah",
-  "callsign": "VIHANG.SH",
+  "callsign": "VShah",
   "title": "ML / Data Platform Engineer",
   "subtitle": "Software Engineering & Business double major, Dec 2026",
   "location": "Calgary, AB",
@@ -10,8 +10,8 @@
   "seeking": ["Machine Learning Engineering", "ML Ops", "Data Platform Engineering"],
   "links": [
     { "label": "GitHub",   "handle": "WayOfVishu",   "url": "https://github.com/WayOfVishu",            "icon": "github" },
-    { "label": "LinkedIn", "handle": "Vihang-Shah",  "url": "https://linkedin.com/in/Vihang-Shah",     "icon": "linkedin" },
-    { "label": "Email",    "handle": "shahvihang02@gmail.com", "url": "mailto:shahvihang02@gmail.com", "icon": "mail" }
+    { "label": "LinkedIn", "handle": "Vihang-Shah",  "url": "https://linkedin.com/in/shahvihang02",     "icon": "linkedin" },
+    { "label": "Email",    "handle": "shahvihang02@gmail.com", "url": "mailto:shahvihang02@gmail.com",  "icon": "mail" }
   ],
   "metrics": [
     { "value": 1000000, "display": "1M+",  "label": "Records ingested",  "caption": "per source, production Fivetran pipelines", "format": "compact" },
