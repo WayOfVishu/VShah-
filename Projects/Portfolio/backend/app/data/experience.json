@@ -2,10 +2,10 @@
   {
     "id": "pembina-doe",
     "org": "Pembina Pipeline Corporation",
-    "role": "Data Operations Engineering Intern",
+    "role": "Data & Dev Ops Engineering Intern",
     "location": "Calgary, AB",
     "start": "2026-05",
-    "end": null,
+    "end": "2026-08",
     "current": true,
     "proprietary": true,
     "domain": "Data Platform",
@@ -61,7 +61,7 @@
   {
     "id": "pembina-sap-intern",
     "org": "Pembina Pipeline Corporation",
-    "role": "SAP Intern",
+    "role": "SAP Analytics Intern",
     "location": "Calgary, AB",
     "start": "2024-05",
     "end": "2024-08",
