@@ -14,9 +14,9 @@
     { "label": "Email",    "handle": "shahvihang02@gmail.com", "url": "mailto:shahvihang02@gmail.com",  "icon": "mail" }
   ],
   "metrics": [
-    { "value": 1000000, "display": "1M+",  "label": "Records ingested",  "caption": "per source, production Fivetran pipelines", "format": "compact" },
-    { "value": 40,      "display": "40%",  "label": "Faster BW/4HANA",   "caption": "across 10+ tuned data models",             "format": "percent" },
-    { "value": 6,       "display": "6-fig","label": "Annual savings",    "caption": "from one automated SAP workflow",          "format": "literal" },
-    { "value": 100,     "display": "100+", "label": "Enterprise users",  "caption": "served monthly by an internal RAG agent",  "format": "plus" }
+    { "value": 10000000, "display": "10M+", "label": "Records ingested",  "caption": "per source, production Fivetran pipelines", "format": "compact" },
+    { "value": 40,       "display": "40%",  "label": "Faster BW/4HANA",   "caption": "across 10+ tuned data models",             "format": "percent" },
+    { "value": 6,        "display": "6-fig","label": "Annual savings",    "caption": "from one automated SAP workflow",          "format": "literal" },
+    { "value": 100,      "display": "100+", "label": "Enterprise users",  "caption": "served monthly by an internal RAG agent",  "format": "plus" }
   ]
 }
