@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stock Forecast Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+<!-- The disclaimer is the first thing in the DOM and the first thing painted.
+     It is not a footnote and it is not dismissible: the page outputs a number
+     that looks like a price prediction, and anyone who reads that number has
+     to have already read this. -->
+<div class="disclaimer-bar" role="alert">
+  <strong>Not financial advice.</strong>
+  This is a personal research project. Nothing here is investment, financial,
+  legal, or tax advice, and no output is a recommendation to buy or sell
+  anything. The author accepts no responsibility or liability for any gains or
+  losses arising from its use.
+  <button type="button" class="disclaimer-more" id="disclaimerMore" aria-expanded="false">Read more</button>
+</div>
+
+<div class="disclaimer-full" id="disclaimerFull" hidden>
+  <h2>Full disclaimer</h2>
+  <p>
+    This application is a <strong>personal research and educational project</strong>
+    built to practise machine learning and data engineering. It is not a
+    financial product, not a licensed service, and not operated by a registered
+    investment adviser, dealer, or any regulated financial entity.
+  </p>
+  <ul>
+    <li>
+      <strong>Nothing here is advice.</strong> No output constitutes investment,
+      financial, legal, accounting, or tax advice, a solicitation, or a
+      recommendation to buy, sell, or hold any security.
+    </li>
+    <li>
+      <strong>The forecasts are very probably wrong.</strong> Thirty-day equity
+      returns are close to unpredictable. Published research treats an
+      out-of-sample R&sup2; of 0.01 as a meaningful result. Any number shown
+      here should be read as an experiment's output, not a prediction you can
+      rely on.
+    </li>
+    <li>
+      <strong>No liability is accepted.</strong> The author is not responsible
+      for any loss or gain, direct or indirect, arising from use of this
+      software or reliance on anything it displays. You use it entirely at your
+      own risk.
+    </li>
+    <li>
+      <strong>Data may be wrong, stale, or synthetic.</strong> It comes from
+      free third-party sources with no accuracy guarantee, and when a source is
+      unavailable the app falls back to <em>generated</em> data. The provenance
+      panel on every result says which. Read it.
+    </li>
+    <li>
+      <strong>Past performance does not indicate future results.</strong> Every
+      statistic shown is computed from historical data.
+    </li>
+  </ul>
+  <p class="muted">
+    If you are making actual investment decisions, talk to a qualified,
+    licensed financial adviser in your jurisdiction.
+  </p>
+  <button type="button" class="btn-ghost" id="disclaimerClose">Close</button>
+</div>
+
+<header class="mission-header">
+  <div class="mission-id">
+    <span class="eyebrow">RESEARCH SANDBOX</span>
+    <h1>Stock Forecast</h1>
+  </div>
+  <div class="mission-clock" id="providerClock">
+    <div class="clock-block">
+      <span class="clock-num" id="providerPrices">–</span>
+      <span class="clock-label">prices</span>
+    </div>
+    <div class="clock-block">
+      <span class="clock-num" id="providerNews">–</span>
+      <span class="clock-label">news</span>
+    </div>
+    <div class="clock-block">
+      <span class="clock-num" id="providerMacro">–</span>
+      <span class="clock-label">macro</span>
+    </div>
+  </div>
+</header>
+
+<main class="deck">
+
+  <!-- Search -->
+  <section class="panel" aria-labelledby="searchHeading">
+    <h2 id="searchHeading">Pick a stock</h2>
+    <form id="searchForm" class="search-form" autocomplete="off">
+      <label class="grow">
+        Company name or ticker
+        <input required id="searchInput" name="q" placeholder="apple, AAPL, Royal Bank…" />
+      </label>
+      <label>
+        Risk aversion (A)
+        <select id="riskAversion" name="risk_aversion">
+          <option value="2">2 — aggressive</option>
+          <option value="4" selected>4 — typical</option>
+          <option value="6">6 — conservative</option>
+          <option value="8">8 — very conservative</option>
+        </select>
+      </label>
+      <button type="submit" class="btn-primary" id="searchBtn">Analyse</button>
+    </form>
+
+    <!-- Shown only when resolve() reports more than one plausible reading.
+         Guessing silently is worse than asking: a wrong ticker poisons
+         everything downstream and the user cannot tell which step failed. -->
+    <div id="candidates" class="candidates" hidden>
+      <p class="candidates-hint">More than one match — pick one:</p>
+      <div id="candidateList" class="candidate-list"></div>
+    </div>
+  </section>
+
+  <!-- Progress -->
+  <section class="panel" id="progressPanel" hidden aria-live="polite">
+    <h2>Working</h2>
+    <ol class="progress-list" id="progressList"></ol>
+    <p class="muted small" id="progressNote">
+      A first look at a ticker builds all five datasets from scratch — roughly
+      20 rate-limited news calls. Expect a minute or two. Repeat requests are
+      served from cache and are near-instant.
+    </p>
+  </section>
+
+  <!-- Result -->
+  <section class="panel result-panel" id="resultPanel" hidden>
+    <div class="result-head">
+      <div>
+        <span class="eyebrow" id="resultAsOf">–</span>
+        <h2 id="resultSymbol">–</h2>
+      </div>
+      <div class="verdict" id="verdict">
+        <span class="verdict-num" id="verdictNum">–</span>
+        <span class="verdict-label" id="verdictLabel">30-day expected return</span>
+      </div>
+    </div>
+
+    <p class="model-banner" id="modelBanner" hidden></p>
+
+    <div class="result-grid">
+      <div class="stat">
+        <span class="stat-label">80% range</span>
+        <span class="stat-value" id="statRange">–</span>
+        <span class="stat-note" id="statRangeNote"></span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Annualised volatility</span>
+        <span class="stat-value" id="statVol">–</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Beta vs S&amp;P 500</span>
+        <span class="stat-value" id="statBeta">–</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Market-explained (R&sup2;)</span>
+        <span class="stat-value" id="statR2">–</span>
+        <span class="stat-note" id="statR2Note"></span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Sentiment shift</span>
+        <span class="stat-value" id="statSentiment">–</span>
+        <span class="stat-note">recent 2mo vs prior 10mo</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Attention ratio</span>
+        <span class="stat-value" id="statAttention">–</span>
+        <span class="stat-note">coverage per day, recent vs baseline</span>
+      </div>
+    </div>
+
+    <!-- Chapter 6 capital allocation. The forecast alone is not a decision;
+         this is what turns it into one. -->
+    <div class="allocation" id="allocation">
+      <h3>Suggested allocation <span class="tag">textbook formula, not advice</span></h3>
+      <div class="alloc-bar" id="allocBar">
+        <div class="alloc-fill" id="allocFill"></div>
+      </div>
+      <p class="alloc-note" id="allocNote">–</p>
+      <p class="muted small">
+        Bodie/Kane/Marcus ch.&nbsp;6: <span class="mono">y* = [E(r) − r_f] / (A · σ²)</span>.
+        A mechanical output of the formula given the forecast above — it inherits
+        every one of that forecast's weaknesses.
+      </p>
+    </div>
+  </section>
+
+  <!-- Datasets -->
+  <section class="panel" id="datasetPanel" hidden>
+    <h2>The five datasets</h2>
+    <p class="muted small">
+      What was actually gathered, and where each piece came from. A result built
+      on generated data is flagged — check here before reading anything above.
+    </p>
+    <div class="dataset-grid" id="datasetGrid"></div>
+  </section>
+
+  <!-- Error -->
+  <section class="panel error-panel" id="errorPanel" hidden>
+    <h2>Something went wrong</h2>
+    <p id="errorMessage"></p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p class="footer-disclaimer">
+    <strong>Not financial advice.</strong> Personal research project. No
+    liability accepted for any gains or losses. See the full disclaimer above.
+  </p>
+
+  <!-- Licence obligations, not politeness. GDELT requires citation and a link;
+       FRED requires this exact sentence. Both are conditions of free use, so
+       neither may be removed or reworded. See docs/api-terms.md. -->
+  <p class="footer-credits">
+    News and macro text via <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener">The GDELT Project</a>.
+    Market data via Yahoo Finance (unofficial, personal use only).
+    Macro series via FRED&reg;.
+  </p>
+  <p class="footer-credits">
+    This product uses the FRED&reg; API but is not endorsed or certified by the
+    Federal Reserve Bank of St. Louis.
+  </p>
+</footer>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+# Repo-wide ignores.
+#
+# GitHub hard-rejects any single file over 100 MB, and the rejection happens at
+# push time — after the commit, when the fix is a history rewrite rather than a
+# `git rm`. Everything below is here to stop a large or unpublishable file being
+# committed in the first place.
+
+# --- large reference material -------------------------------------------
+# Scanned textbooks and similar. Kept on disk, never committed: they are far
+# over GitHub's file size limit, and this repo is public, so a copyrighted
+# scan should not be published from it.
+References/**/*Full Textbook*.pdf
+
+# --- installers and binaries ---------------------------------------------
+# Downloaded installers are not source. Re-download them instead.
+References/*.exe
+*.msi
+*.dmg
+*.iso
+
+# --- python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments, listed explicitly — git cannot recognise a venv by its
+# contents, so an unlisted one dumps thousands of files into `git status`.
+Projects/Stocks/stocks-env/
+Projects/Portfolio/backend/portfolio/
+.venv/
+venv/
+
+# --- node ----------------------------------------------------------------
+node_modules/
+
+# --- env / secrets -------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- editors / os --------------------------------------------------------
+.DS_Store
+Thumbs.db

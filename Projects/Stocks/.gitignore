@@ -1,0 +1,38 @@
+# --- python ---
+# Virtual environments. Git cannot detect a venv by its contents, so each name
+# has to be listed explicitly — renaming one without adding it here silently
+# dumps ~1,500 files into `git status`.
+/stocks-env/
+.venv/
+venv/
+env/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- data ---
+# Everything under data/ is fetched, not authored. It is reproducible from the
+# providers and an as-of date, it is large (a year of scraped article text runs
+# to tens of MB per ticker), and some of it is redistribution-restricted news
+# copy. The directory skeleton is kept via the .gitkeep files below.
+/data/**
+!/data/**/
+!/data/**/.gitkeep
+
+# Trained models and cached artifacts — regenerate with `py run.py train`.
+/models/
+*.joblib
+*.pkl
+
+# --- env ---
+.env
+.env.*
+!.env.example
+
+# --- editors / os ---
+.DS_Store
+Thumbs.db
+.vscode/
