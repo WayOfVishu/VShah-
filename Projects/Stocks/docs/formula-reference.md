@@ -2,7 +2,7 @@
 
 Every formula implemented in `stocks/finance/`, mapped to its source in Bodie,
 Kane & Marcus, *Investments*, 9th Canadian Edition — the chapter summaries in
-`References/Stocks/`.
+`References/Stocks/`. Chapters 1–12 are covered.
 
 The purpose of this file is traceability. If you are ever unsure whether the
 code is right, this table tells you which page to check it against, and
@@ -159,6 +159,200 @@ information coefficient so the result is stated in the units the book uses.
 **F6 is the bridge to a portfolio.** Not needed to forecast one stock, but if
 you extend to ranking a universe, the model's per-name predicted alpha feeds
 straight into it. Negative-alpha names get negative (short) weights.
+
+
+---
+
+## Chapter 9 — The Capital Asset Pricing Model
+
+**The chapter that turns a forecast into a claim.** Everything through Chapter 8
+described what a security *did*. The SML is the first statement about what a
+security *ought* to return, which is what lets `pipeline.py`'s output be scored
+rather than merely reported.
+
+| ID | Formula | Function |
+|---|---|---|
+| F1 | `E(r_i) = r_f + β_i·[E(r_M) − r_f]` ; `β_i = Cov(r_i,r_M)/σ_M²` | `capm.sml_expected_return`, `capm.beta_from_covariance` |
+| F2 | `E(r_i) = E(r_Z) + β_i·[E(r_M) − E(r_Z)]` | `capm.zero_beta_expected_return` |
+| F3 | `α_i = E(r_i)_actual − [r_f + β_i·(E(r_M) − r_f)]` | `capm.sml_alpha`, `capm.evaluate_against_sml` |
+| F4 | `Required = r_f + β·MRP` ; `Fair Profit = Required × Capital` | `capm.required_return`, `capm.fair_profit` |
+
+**Worked examples pinned as tests.** The SML alpha example: market 14%, T-bills
+6%, β = 1.2 → fair return 15.6%; an analyst forecast of 17% is an alpha of
++1.4%. Example 9.1 (utility rate-making): β = 0.6, r_f = 6%, MRP = 8% → required
+10.8%, fair profit $10.8M on $100M of invested capital.
+
+**F3 is the bridge between the ML half of this project and the finance half.**
+`/api/predict` annualises the model's 21-day log forecast, runs it through F3
+against the fitted β, and returns the result as its `valuation` block. That
+alpha is exactly the input Chapter 8's `treynor_black_weights` has always
+wanted and never had — extend this to a universe and the two connect directly.
+
+**What F1 leaves out is the point.** Total volatility does not appear. A
+speculative name with 90% annualised volatility and β = 0.4 is entitled to
+*less* return than a placid utility at β = 1.1, because diversifiable risk earns
+no compensation. `tests/test_finance.py` pins this as an executable assertion,
+because it is the claim people most often get backwards, and because it is the
+reason `eq_vol_*` must never be read as an expected-return feature.
+
+**The market risk premium is the weak link, and it is handled explicitly.** The
+MRP is not observable. Estimating it from one year of index returns gives a
+standard error of roughly 18 percentage points against a quantity near 5% —
+noise several times the size of the signal, and negative often enough to invert
+the SML, which scores every high-beta name backwards.
+`capm.realised_market_risk_premium` therefore shrinks the sample mean toward the
+textbook 8% with weight `n / (n + 1260)`: about 17% sample weight at one year,
+50/50 at five. `capm_*_mrp_is_default` flags rows where even that was
+unavailable. Any alpha here is a sketch, and the response carries the MRP
+alongside so it can never be quoted without its input.
+
+---
+
+## Chapter 10 — Arbitrage Pricing Theory and Multifactor Models
+
+| ID | Formula | Function |
+|---|---|---|
+| F1 | `E(R_P) = β_P·E(R_M)` (well-diversified P) | the single-factor case of `multifactor.multifactor_expected_return` |
+| F2 | `E(r_P) = r_f + β_P1[E(r_1) − r_f] + β_P2[E(r_2) − r_f]` | `multifactor.multifactor_expected_return` |
+| F3 | `R_i = α_i + β_iM·R_M + β_iSMB·SMB + β_iHML·HML + e_i` | `multifactor.fit_multifactor` |
+| F4 | `profit = $1 × [E(r_Q) − E(r_A)]`, Q matched on factor betas | `multifactor.replicating_weights`, `multifactor.arbitrage_profit` |
+
+**Examples 10.3 and 10.4, pinned:** two factor portfolios at 10% and 12%,
+r_f = 4%, β₁ = 0.5, β₂ = 0.75 → fair return 13%, a 9% risk premium *from two
+betas both below 1*. If A is priced at 12%, the replicating portfolio Q is
+0.5 / 0.75 / −0.25 in T-bills (a negative T-bill weight: borrowing, not lending)
+and the long-Q/short-A trade nets $0.01 riskless per dollar.
+
+**What changed in this project.** `features/tabular.py` already regressed the
+stock against four indices — but *separately*, one univariate fit each. Four
+single-factor models are not a multifactor model. The S&P 500 and NASDAQ
+correlate around 0.9, so `scl_gspc_beta` and `scl_ixic_beta` were largely the
+same number twice, and neither was the *marginal* sensitivity to tech given
+broad-market exposure. `_multifactor_features` now runs one joint regression
+and emits `ff_*`. `tests/test_finance.py` demonstrates the difference directly:
+drop a correlated factor and the surviving loading absorbs it, moving from 1.0
+to above 1.4.
+
+**The factor proxies are proxies, and the code says so at length.** Real
+Fama-French SMB and HML come from Ken French's library, built from CRSP
+book-to-market sorts. This project builds `^RUT − ^GSPC` for SMB and
+`IWD − IWF` for HML — free, keyless, already flowing through DS2, correlated
+with the real factors and *not* them. Small-cap indices differ from large-cap
+ones in sector composition as much as in size. Read `ff_beta_smb` as
+directional, never as comparable to a published loading.
+
+**Compare `ff_firm_specific_share` against `scl_gspc_firm_specific_share`.** If
+the multifactor model explains materially more variance, the single-index model
+was mislabelling systematic risk as firm-specific — which means DS3 was being
+asked to explain moves that were never company-specific to begin with.
+
+---
+
+## Chapter 11 — The Efficient Market Hypothesis
+
+**Read this chapter as the argument against the project, then keep going.**
+Weak-form EMH says everything derivable from past prices and volume is already
+priced, which if true makes every `tech_*` and `ret_*` feature worthless.
+Semistrong extends that to all public information — every document DS3 will ever
+see. Taken at face value, the honest expected R² of this pipeline is zero.
+
+The chapter does not quite say that, and the gap is where the project lives:
+markets are efficient enough that active management struggles to beat its costs,
+and not so efficient that no analysis is worthwhile. `pipeline.py`'s calibration
+note — treat R² 0.01 as a genuine result, treat 0.4 as a bug — is this chapter
+restated as an engineering expectation.
+
+| ID | Formula | Function |
+|---|---|---|
+| F1 | `r_t = α + β·r_Mt + e_t` (market model) | `index_model.fit_scl` on **total** returns |
+| F2 | `e_t = r_t − (α + β·r_Mt)` | `event_study.abnormal_return`, `.abnormal_return_series` |
+| F3 | size spread = 7.65%/yr, smallest minus largest NYSE decile, 1926–2015 | `event_study.SIZE_EFFECT_SPREAD` |
+
+**Example 11.3, pinned:** α = 0.05%, β = 0.8, market +1%, stock +2% → expected
+0.85%, abnormal +1.15%.
+
+**F1 takes total returns; Chapter 8's F2 takes excess returns.** Same
+arithmetic, different convention, and the two alphas differ by `(1 − β)·r_f`.
+Mixing them shifts every abnormal return by a constant, silently. The parameter
+names in `event_study.py` say `actual_return`/`market_return` rather than
+reusing `index_model`'s `_excess` naming for exactly this reason.
+
+**LO3's methodological rule is enforced structurally, not by comment.** α and β
+must be estimated from a period well separated from the event, or the benchmark
+is contaminated by the very abnormal performance being measured.
+`event_study.abnormal_return_series` therefore *takes* α and β rather than
+fitting them, so a function cannot estimate and measure on the same data.
+`_event_features` fits on days −273..−22 and measures on the last 21.
+
+**Why CAR belongs in a feature row.** DS3 says what was *said* about a company.
+`evt_gspc_car_21d` says how much the market *moved* on firm-specific news over
+the same window, with market direction stripped out. Heavy negative coverage
+with no negative CAR means the news was already priced — the semistrong
+prediction exactly. Heavy coverage with a large CAR means it was not, which is
+the post-earnings-announcement-drift case.
+
+**Momentum is a specification, not a lookback.** `evt_momentum_12_1` is the
+twelve-month return *skipping the most recent month*, because one-month
+reversal points the opposite way to twelve-month momentum and including it
+attenuates both. This is why `eq_ret_252d` is not a momentum feature — it is the
+blend. `evt_reversal_24_36m` covers years 2–3 back, sign-flipped so a positive
+value means the anomaly predicts a rebound.
+
+**Carry the joint hypothesis problem with every alpha this project prints.**
+Every test of efficiency is jointly a test of whatever asset-pricing model
+defined "normal". A positive alpha is equally evidence that the CAPM is the
+wrong benchmark. This is why `SMLVerdict.verdict` calls anything inside ±1%
+"fairly priced" rather than a recommendation.
+
+---
+
+## Chapter 12 — Behavioural Finance and Technical Analysis
+
+| ID | Formula | Function |
+|---|---|---|
+| F1 | `fair ratio = A/B` ; `premium = (actual − fair)/fair` | `technical.parity_ratio`, `technical.parity_premium` |
+| F2 | `MA_t = (P_t + … + P_{t−n+1})/n` | `technical.moving_average`, `.ma_crossover_state`, `.ma_crossover_age` |
+| F3 | `Trin = (decl vol/n decl)/(adv vol/n adv)` | `technical.trin` — **implemented, not wired** |
+
+**Royal Dutch/Shell, pinned:** a 60/40 profit split implies a fair price ratio
+of exactly 1.5. Royal Dutch traded ~10% above parity in February 1993, widening
+to ~17% before reversing after 1999.
+
+**That example is the most important thing in this chapter for this project,
+and it is not a formula.** An arbitrageur who correctly identified the 10%
+mispricing in 1993 lost money for six years first. Being right about value and
+being right about the next thirty days are different claims. Every alpha the
+Chapter 9 module produces inherits that caveat.
+
+**Why technical features are defensible here at all.** The chapter supplies a
+*mechanism*: the disposition effect — holding losers too long, selling winners
+too early — generates real price momentum even when fundamental value follows a
+pure random walk, because supply and demand respond to purchase price rather
+than to value. Overconfidence links volume to subsequent returns, which is why
+technicians watch volume alongside price.
+
+**And the counter-argument, which this project is squarely exposed to.**
+Technical signals are loose enough to fit any chart after the fact, and testing
+enough patterns against history will always turn up some that look significant
+by chance. A `GridSearchCV` over hundreds of feature-model combinations on a
+couple of thousand overlapping rows *is* a data-mining machine. This is why
+`evaluate.py`'s purged time-series split matters more than any indicator, and
+why every function in `technical.py` returns a *feature* rather than a
+buy/sell — none of them are signals, and `#ML-6`'s ablation decides which earn
+their column.
+
+**`ma_crossover_age` exists because state is not the signal.** A stock eight
+months above its 50-day average is not a breakout. `tech_sma_dist_*` gives
+distance and `ma_crossover_state` gives sign; neither can tell a fresh cross
+from a stale one. It saturates at `max_lookback` rather than returning NaN,
+because "no crossing in a year" is a real observation about a persistent trend
+and imputing it would replace a genuine extreme with a median.
+
+**Trin is implemented and deliberately unused.** It needs market-wide
+advancing/declining issue counts and their volumes, and no provider in
+`ingest/` serves them. Leaving a hole where a named textbook formula belongs is
+worse than a function whose docstring says it has no inputs yet. If a breadth
+provider is ever added, this is what it feeds.
 
 ---
 

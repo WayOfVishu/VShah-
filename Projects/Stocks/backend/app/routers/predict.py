@@ -1,6 +1,6 @@
 """POST /api/predict -- the 30-day forecast.
 
-**This endpoint is wired but not trained.** It builds the five datasets, turns
+**This endpoint is wired but not trained.** It builds the datasets, turns
 them into a feature row, and calls a model. Until you train one and save it to
 `models/`, it returns the statistical baseline instead and says so in the
 response body -- `model.trained` is `false` and `model.kind` is `"baseline"`.
@@ -15,14 +15,33 @@ the UI can render it differently rather than relying on someone reading a note.
 
     expected_return   the point estimate
     interval          an uncertainty band -- see the note below
+    valuation         Chapter 9's SML: what the beta entitles the stock to, and
+                      how far the forecast sits above or below that line
     allocation        Chapter 6's y*: how much to actually hold, given the
                       forecast, its volatility, and the user's risk aversion
-    context           beta, R-squared, and the sentiment shift that drove it
+    context           beta, R-squared, and the sentiment read that drove it
 
-The allocation block is what makes the forecast usable. "+2.3% over 30 days" is
-not a decision. "+2.3% with 38% annualised volatility, so y* = 0.16 for a
-moderately risk-averse investor" is one, and it comes straight from
-`finance.portfolio.capital_allocation_line`.
+**The valuation block is the one that makes the number mean something.** A raw
+forecast of +2.3% cannot be judged without knowing what the stock's systematic
+risk entitles it to. A beta-1.4 name in a market carrying a 7% risk premium is
+*owed* about 9.8% a year; forecasting less than that for it is a bearish call
+wearing a bullish sign, and reporting only "+2.3%" hides that completely.
+Running the forecast through `capm.evaluate_against_sml` turns it into an alpha
+-- the vertical distance from the security market line -- which is both the
+honest statement and precisely the input Chapter 8's `treynor_black_weights`
+consumes if this is ever extended to ranking a universe.
+
+The allocation block then makes it actionable. "+2.3% with 38% annualised
+volatility, so y* = 0.16 for a moderately risk-averse investor" is a decision,
+and it comes straight from `finance.portfolio.capital_allocation_line`.
+
+**Read the alpha with the scepticism Chapters 10 and 11 ask for.** The market
+risk premium is not observable and reasonable estimates span several
+percentage points, which is wider than most alphas this will produce. Chapter
+11's joint-hypothesis problem says any alpha is equally evidence that the
+asset-pricing model is wrong. `SMLVerdict.verdict` therefore calls anything
+inside +/-1% "fairly_priced" rather than dressing noise up as a
+recommendation.
 
 **On the interval.** The baseline interval is the historical volatility scaled
 to the horizon -- an honest statement of how much this stock moves in 30 days,
@@ -43,7 +62,8 @@ from pydantic import BaseModel, Field
 
 from stocks.config import PROJECT_ROOT
 from stocks.features.assemble import build_row
-from stocks.finance import portfolio, returns as ret, risk
+from stocks.config import DEFAULT_MARKET_RISK_PREMIUM
+from stocks.finance import capm, portfolio, returns as ret, risk
 from stocks.ingest.registry import build_datasets
 from stocks.windows import DEFAULT_HORIZON_DAYS, WindowSpec
 
@@ -85,6 +105,24 @@ class Allocation(BaseModel):
     note: str
 
 
+class Valuation(BaseModel):
+    """Chapter 9: the forecast placed against the security market line."""
+
+    fair_return: float = Field(..., description="SML return the beta entitles it to, annual")
+    forecast_return_annual: float = Field(..., description="the forecast, annualised and de-logged")
+    alpha: float = Field(..., description="forecast minus fair -- the vertical distance from the SML")
+    beta: float
+    risk_free_rate: float
+    market_risk_premium: float
+    market_risk_premium_is_default: bool = Field(
+        ...,
+        description="true when the MRP could not be estimated from index history "
+                    "and the textbook 8% was used instead",
+    )
+    verdict: str = Field(..., description="underpriced | fairly_priced | overpriced | unknown")
+    note: str
+
+
 class ModelInfo(BaseModel):
     trained: bool
     kind: str = Field(..., description="baseline | trained")
@@ -102,6 +140,25 @@ class Context(BaseModel):
     n_recent_documents: int = 0
     n_baseline_documents: int = 0
 
+    # DS3, the synthesised brief. `sentiment_rationale` is the model's own
+    # two-sentence account of what drove its scores -- surfaced because a
+    # sentiment number with no traceable reason is not something a user should
+    # be asked to act on, and because it makes a bad brief obvious at a glance.
+    sentiment_recent: float | None = None
+    sentiment_brief_shift: float | None = None
+    macro_sentiment: float | None = None
+    attention_level: float | None = None
+    sentiment_confidence: float | None = None
+    sentiment_themes: list[str] = []
+    sentiment_rationale: str | None = None
+    sentiment_grounding: str | None = None
+
+    # Chapter 10-12 context, so the UI can show why the beta above is or is not
+    # the whole story.
+    multifactor_r_squared: float | None = None
+    car_21d: float | None = None
+    momentum_12_1: float | None = None
+
 
 class PredictResponse(BaseModel):
     symbol: str
@@ -114,6 +171,7 @@ class PredictResponse(BaseModel):
     direction: str = Field(..., description="up | down | flat")
     interval: Interval
 
+    valuation: Valuation
     allocation: Allocation
     context: Context
     model: ModelInfo
@@ -181,6 +239,30 @@ def predict(req: PredictRequest) -> PredictResponse:
     annual_expected = float(np.expm1(expected * 252.0 / req.horizon_days))
     rf = float(bundle.risk_free.dropna().iloc[-1]) if len(bundle.risk_free.dropna()) else 0.04
 
+    # Chapter 9. `_capm_features` already computed the MRP from the S&P's own
+    # trailing year while building the row, so read it back rather than
+    # recomputing -- two independent estimates of the same premium in one
+    # response would eventually diverge and neither would be wrong enough to
+    # notice.
+    beta = row.get("scl_gspc_beta", float("nan"))
+    mrp = row.get("capm_gspc_market_risk_premium", DEFAULT_MARKET_RISK_PREMIUM)
+    mrp_is_default = bool(row.get("capm_gspc_mrp_is_default", 1.0))
+    if not np.isfinite(mrp):
+        mrp, mrp_is_default = DEFAULT_MARKET_RISK_PREMIUM, True
+
+    verdict = capm.evaluate_against_sml(annual_expected, beta, rf, mrp)
+    valuation = Valuation(
+        fair_return=verdict.fair_return,
+        forecast_return_annual=annual_expected,
+        alpha=verdict.alpha,
+        beta=beta,
+        risk_free_rate=rf,
+        market_risk_premium=mrp,
+        market_risk_premium_is_default=mrp_is_default,
+        verdict=verdict.verdict,
+        note=verdict.note,
+    )
+
     if np.isfinite(annual_vol) and annual_vol > 0:
         alloc = portfolio.capital_allocation_line(annual_expected, annual_vol, rf, req.risk_aversion)
         allocation = Allocation(
@@ -201,11 +283,22 @@ def predict(req: PredictRequest) -> PredictResponse:
     else:
         raise HTTPException(422, "not enough price history to compute volatility")
 
+    brief = bundle.sentiment_brief
+
     warning = None
     if bundle.has_synthetic:
         warning = (
-            f"{len(bundle.synthetic)} of 5 datasets came from the offline synthetic "
+            f"{len(bundle.synthetic)} dataset slot(s) came from the offline synthetic "
             "fallback -- this forecast is not based on real data."
+        )
+    elif brief is not None and brief.is_synthetic:
+        # Called out separately from `has_synthetic` because it is the failure
+        # most likely to go unnoticed: prices are real, the response looks
+        # complete, and the entire text side of the model is a word list. DS3
+        # carries most of the non-price signal now, so this is not a footnote.
+        warning = (
+            "Sentiment came from the lexicon fallback, not a language model -- set "
+            "GEMINI_API_KEY for the real DS3. Price and index features are unaffected."
         )
     elif not info.trained:
         warning = (
@@ -234,6 +327,7 @@ def predict(req: PredictRequest) -> PredictResponse:
             # -- it is just how much this stock moves in 30 days.
             method="historical_volatility",
         ),
+        valuation=valuation,
         allocation=allocation,
         context=Context(
             beta_sp500=row.get("scl_gspc_beta"),
@@ -244,12 +338,42 @@ def predict(req: PredictRequest) -> PredictResponse:
             attention_ratio=row.get("shift_attention_ratio"),
             n_recent_documents=len(bundle.news_recent),
             n_baseline_documents=len(bundle.news_baseline),
+            sentiment_recent=_finite(row.get("gem_recent_sentiment")),
+            sentiment_brief_shift=_finite(row.get("gem_sentiment_shift")),
+            macro_sentiment=_finite(row.get("gem_macro_sentiment")),
+            attention_level=_finite(row.get("gem_attention_level")),
+            sentiment_confidence=_finite(row.get("gem_confidence")),
+            sentiment_themes=list(brief.themes) if brief else [],
+            sentiment_rationale=brief.rationale if brief else None,
+            sentiment_grounding=brief.grounding if brief else None,
+            multifactor_r_squared=_finite(row.get("ff_r_squared")),
+            car_21d=_finite(row.get("evt_gspc_car_21d")),
+            momentum_12_1=_finite(row.get("eq_evt_momentum_12_1")),
         ),
         model=info,
         sources=bundle.sources,
         synthetic=sorted(bundle.synthetic),
         warning=warning,
     )
+
+
+def _finite(value) -> float | None:
+    """Feature-row value -> JSON-safe float, or None.
+
+    NaN is a legitimate and common value in a feature row -- it means the
+    window was too short, or the brief declined to score a field -- but it is
+    not valid JSON, and pydantic serialises it to a bare `NaN` token that
+    `JSON.parse` rejects. Every optional numeric read from `row` goes through
+    here so the frontend gets `null` and can render "unavailable" rather than
+    failing to parse the response at all.
+    """
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
 
 
 def _baseline_forecast(daily: pd.Series, horizon_days: int) -> tuple[float, ModelInfo]:

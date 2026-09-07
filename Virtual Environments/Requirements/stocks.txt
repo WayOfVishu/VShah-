@@ -19,9 +19,22 @@ yfinance>=0.2.40     # DS1 + DS4 prices
 requests>=2.32       # GDELT (DS2/DS3/DS5), FRED, Yahoo symbol search
 python-dotenv>=1.0   # reads .env; optional at runtime, see config.py
 
+# --- sentiment synthesis (DS3) ---
+google-genai>=1.0          # the Gemini client. NOT `google-generativeai`, which
+                           # Google has end-of-lifed -- it still imports but gets
+                           # no fixes and prints a deprecation warning on every
+                           # call. Optional at runtime: without it (or without
+                           # GEMINI_API_KEY) the registry falls back to
+                           # SyntheticBriefProvider and records the fallback in
+                           # bundle.synthetic, so the pipeline still runs
+                           # end-to-end on a fresh clone with no key.
+
 # --- text features ---
 nltk>=3.9            # VADER sentiment. Lexicon-based, so no fitting and no
-                     # leakage risk -- see features/text.py on why that matters
+                     # leakage risk -- see features/text.py on why that matters.
+                     # Now the *control group* for the Gemini block rather than
+                     # the primary text signal: if gem_* does not beat these
+                     # out of sample, the API bill is not being earned.
 beautifulsoup4>=4.12 # only used when GDELT is run with fetch_full_text=True
 
 # --- dev ---
@@ -29,13 +42,13 @@ pytest>=8.0
 httpx>=0.27          # required by fastapi.testclient, which tests/test_api.py uses
 
 # --- optional, uncomment as you need them ---
-# praw>=7.7          # Reddit community sentiment for DS3. Needs app credentials,
-#                    # and note Reddit search cannot reach back a year -- DS3 only.
-# transformers>=4.44 # FinBERT sentiment (features/text.py, backend="finbert").
-# torch>=2.4         # ...and its runtime. ~400MB model download on first use.
-# joblib>=1.4        # saving a trained pipeline to models/forecaster.joblib
-# matplotlib>=3.9    # notebooks/01_pipeline_playground.ipynb
-# seaborn>=0.13      # ...and the plots in it, in your Group20 notebook's style
-# jupyterlab>=4.2    # to run the notebook at all
-# trafilatura>=1.12  # proper article-body extraction, if you decide metadata-
-#                    # only news is not enough (see ingest/news.py)
+praw>=7.7          # Reddit community sentiment for DS3. Needs app credentials,
+                   # and note Reddit search cannot reach back a year -- DS3 only.
+transformers>=4.44 # FinBERT sentiment (features/text.py, backend="finbert").
+torch>=2.4         # ...and its runtime. ~400MB model download on first use.
+joblib>=1.4        # saving a trained pipeline to models/forecaster.joblib
+matplotlib>=3.9    # notebooks/01_pipeline_playground.ipynb
+seaborn>=0.13      # ...and the plots in it, in your Group20 notebook's style
+jupyterlab>=4.2    # to run the notebook at all
+trafilatura>=1.12  # proper article-body extraction, if you decide metadata-
+                   # only news is not enough (see ingest/news.py)

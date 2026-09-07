@@ -29,6 +29,22 @@ So this module uses `TimeSeriesSplit` with a purge gap. `evaluate.py` explains
 the gap in detail. The practical consequence is that your scores here will look
 *worse* than the notebook's, and that is the point -- they will be real.
 
+**What changed with the Gemini rewrite.** This module used to spend most of its
+width on text. Three TF-IDF blocks went through `AdaptiveSVD` into 72 unnamed
+components, against roughly 150 named numeric features, on a panel of maybe two
+thousand rows. The `ColumnTransformer` below still has that machinery and it
+still works -- run `build_row(include_raw_text=True)` and every text branch
+comes back -- but the default panel now carries ~15 `gem_*` columns instead:
+named, dense, and produced by a model that read the articles rather than
+counted their words.
+
+The practical consequence for tuning is that the text hyperparameters mostly
+stop mattering and the numeric ones start to. #ML-2 (choosing SVD width) is
+close to moot on the default panel; #ML-6 (the ablation) becomes *more*
+important, because the question is no longer "does text help" but "does an LLM
+read of the text beat VADER on the same documents" -- and both blocks are in
+the panel side by side specifically so that comparison is one line of code.
+
 **Calibrate your expectations before you start tuning.** A 30-day equity return
 is close to unpredictable. Published research treats an out-of-sample R-squared
 of 0.01 as a genuine result. If your first run shows R-squared 0.4, something
@@ -171,12 +187,17 @@ def build_preprocessor(
 
     Text branches -- one TfidfVectorizer + TruncatedSVD **per block**.
 
-    Three separate branches rather than one shared vectoriser, and that is
-    deliberate: a shared vocabulary would let DS2 and DS3 be compared only
-    through the model, whereas separate branches keep "what the baseline
-    corpus said" and "what the recent corpus said" as distinct feature groups.
-    The dataset split exists to enable that comparison, so collapsing it here
-    would throw away the design.
+    Usually there are now **zero** text branches: the default panel has no
+    `text_*` columns, so this loop does not execute and the transformer is the
+    numeric branch alone. The code stays because `include_raw_text=True`
+    restores the corpora for the ablation, and because a preprocessor that
+    silently could not handle text would be a trap for whoever runs it.
+
+    When they are present, one vectoriser per block rather than one shared
+    across all three, and that is deliberate: a shared vocabulary would let the
+    baseline and recent windows be compared only through the model, whereas
+    separate branches keep "what the baseline corpus said" and "what the recent
+    corpus said" as distinct feature groups.
 
     Every fitted transformation lives inside the returned object, so
     `cross_validate` and `GridSearchCV` refit it per fold. That is what keeps
@@ -293,7 +314,7 @@ def baseline_models() -> dict[str, object]:
     }
 
 
-def param_grid() -> list[dict]:
+def param_grid(panel: pd.DataFrame | None = None) -> list[dict]:
     """A multi-model grid for GridSearchCV, in your notebook's shape.
 
     All three estimators in one grid so the search picks both the model family
@@ -305,19 +326,23 @@ def param_grid() -> list[dict]:
     Sized to run in a few minutes on the synthetic panel. Expand it once you
     know which regions matter.
 
-    #ML-4  `TruncatedSVD` is one of several ways to handle the text block. Also
-           worth trying: `SelectKBest(f_regression)` on the raw TF-IDF, or
+    Pass the panel to have the text-branch parameters included when the panel
+    actually has a text branch. Omitting it is safe and simply skips them.
+
+    #ML-4  `TruncatedSVD` is one of several ways to handle the text block. Only
+           relevant when running with `include_raw_text=True`, since the
+           default panel now carries `gem_*` scores instead of raw corpora.
+           Also worth trying: `SelectKBest(f_regression)` on the raw TF-IDF, or
            dropping SVD and letting Ridge regularise the sparse matrix directly
            (it handles high-dimensional sparse input better than trees do).
     #ML-5  Sample weights. Recent as-of dates are more relevant to a forecast
            made today than 2021 rows are. `sample_weight` on an exponential
            decay in `as_of` is a cheap, well-motivated experiment.
     """
-    return [
+    grids: list[dict] = [
         {
             "model": [Ridge(random_state=0)],
             "model__alpha": [0.1, 1.0, 10.0, 100.0],
-            "preprocessor__text_text_recent__svd__n_components": [12, 24, 48],
         },
         {
             "model": [RandomForestRegressor(random_state=0, n_jobs=-1)],
@@ -332,6 +357,16 @@ def param_grid() -> list[dict]:
             "model__max_depth": [2, 3, 4],
         },
     ]
+
+    # The SVD width is only a tunable parameter when there is a text branch to
+    # tune, and since `build_row(include_raw_text=False)` is now the default
+    # there usually is not. Naming a nonexistent step in a grid raises inside
+    # `GridSearchCV.fit` -- after the folds have been built, with an error that
+    # reads as a data problem rather than a configuration one.
+    if panel is not None and split_columns(panel)[1]:
+        grids[0]["preprocessor__text_text_recent__svd__n_components"] = [12, 24, 48]
+
+    return grids
 
 
 # --- what is left for you ------------------------------------------------

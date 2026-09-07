@@ -2,7 +2,7 @@
 
 Two provider shapes, one for each kind of dataset:
 
-    PriceProvider  -> a DataFrame indexed by date  (DS1, DS4)
+    PriceProvider  -> a DataFrame indexed by date  (DS1, DS2)
     TextProvider   -> a list of Document           (DS2, DS3, DS5)
 
 Everything downstream is written against these two protocols and never against
@@ -43,6 +43,7 @@ from ..windows import DateWindow
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "to_naive_date_index",
     "Document",
     "PriceProvider",
     "TextProvider",
@@ -56,6 +57,50 @@ __all__ = [
 # in this order, whatever the vendor calls them, so `features/tabular.py` never
 # has to branch on which provider produced a frame.
 OHLCV_COLUMNS = ["open", "high", "low", "close", "adj_close", "volume"]
+
+
+def to_naive_date_index(frame: pd.DataFrame) -> pd.DataFrame:
+    """Force a frame's index to timezone-naive midnight timestamps.
+
+    **The bug this exists to close.** yfinance returns daily bars indexed
+    `datetime64[s, America/New_York]`. Everything else in this project is
+    timezone-naive and day-resolution: `Document.published` is a `date`,
+    `DateWindow` compares dates, `SyntheticPriceProvider` emits naive
+    timestamps, and FRED series come back naive. The moment a tz-aware price
+    index meets a naive risk-free series in `features/tabular._daily_risk_free`,
+    pandas raises `Cannot compare dtypes datetime64[us] and datetime64[s, tz]`
+    and the whole feature row dies.
+
+    That failure was invisible for the life of the project because every test
+    runs on synthetic data, where both sides are naive and match. The synthetic
+    provider was not just failing to catch the bug -- it was actively hiding it,
+    which is the worst property a fixture can have.
+
+    **Why normalising is right rather than merely convenient.** These are daily
+    OHLC bars. A timezone on a daily bar encodes a market-open instant that this
+    project never uses and cannot use -- every window boundary, every label, and
+    every join is at day resolution. Carrying the zone through means every
+    consumer must remember to strip it, and the one that forgets fails loudly on
+    live data and silently on synthetic. Stripping it once, here, means the
+    question never reaches a consumer.
+
+    `.normalize()` moves each timestamp to midnight so a bar stamped 09:30 and a
+    FRED reading stamped 00:00 land on the same key. Without it the tz is gone
+    but the times still differ and the reindex silently forward-fills wrong.
+    """
+    if frame.empty:
+        return frame
+
+    index = pd.to_datetime(frame.index)
+    if getattr(index, "tz", None) is not None:
+        # tz_convert(None) rather than tz_localize(None): the former converts to
+        # UTC first, the latter just drops the zone and would shift a
+        # New-York-stamped bar onto the previous day for anything east of UTC.
+        index = index.tz_convert("UTC").tz_localize(None)
+
+    out = frame.copy()
+    out.index = index.normalize()
+    return out
 
 
 class ProviderError(RuntimeError):
@@ -202,7 +247,13 @@ class DiskCache:
         if not self._is_fresh(path, window):
             return None
         try:
-            return pd.read_parquet(path)
+            # Normalised on read, not only on write. A cache hit returns before
+            # `clip_frame` runs (see `prices.YFinanceProvider.fetch_prices`), so
+            # without this any parquet written before the fix -- or by an older
+            # checkout -- would keep serving a tz-aware index and keep crashing
+            # the feature row. Doing it here heals existing cache files instead
+            # of requiring anyone to know to delete them.
+            return to_naive_date_index(pd.read_parquet(path))
         except Exception as exc:  # a corrupt cache entry must not be fatal
             log.warning("cache read failed for %s (%s); refetching", path.name, exc)
             return None
@@ -265,6 +316,10 @@ class BaseProvider(ABC):
         """
         if frame.empty:
             return frame
+        # Normalise before clipping, so every provider's output leaves this
+        # method on the same index convention. This is the one place all three
+        # price providers pass through.
+        frame = to_naive_date_index(frame)
         idx = pd.to_datetime(frame.index).date
         mask = [window.start <= d < window.end for d in idx]
         return frame.loc[mask]

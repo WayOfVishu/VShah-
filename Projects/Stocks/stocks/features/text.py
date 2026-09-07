@@ -1,4 +1,11 @@
-"""Text features from DS2 (news baseline), DS3 (recent), DS5 (macro).
+"""Lexicon text features over the three retrieved corpora -- DS3's control group.
+
+These used to be the project's primary text signal. They are now the *baseline*
+the Gemini synthesis in `ingest/gemini.py` has to beat: same documents, scored by
+a word list instead of a language model, at essentially zero cost since the
+documents are already in memory. `docs/TODO.md` #ML-0 is the experiment that
+decides whether the API bill is being earned; keeping these features in the panel
+is what makes that question answerable rather than rhetorical.
 
 Two kinds of output, and the split is the important design decision in this
 module.
@@ -79,6 +86,18 @@ restructuring warning writedown impairment delisting fraud
 UNCERTAINTY_TERMS = frozenset("""
 uncertain uncertainty may might could possibly potential risk risks volatile
 volatility unclear pending awaiting depends contingent speculative
+""".split())
+
+# Terms that mark a claim about the future rather than a report of the past.
+# Used to select the *subset* of documents that are forward-looking, whose tone
+# is then scored separately -- which is a genuinely different measurement from
+# overall tone, not a restatement of it. Coverage of a quarter that already
+# happened and guidance about the next one routinely disagree in sign, and the
+# forecast horizon cares about the second.
+FORWARD_LOOKING_TERMS = frozenset("""
+will expects expected expect forecast forecasts forecasting guidance outlook
+projected projects projecting upcoming plans planned anticipate anticipated
+anticipates ahead future next upgrade target targets estimate estimates
 """.split())
 
 

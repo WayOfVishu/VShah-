@@ -1,4 +1,4 @@
-"""Tabular features from DS1 (equity prices) and DS4 (index prices).
+"""Tabular features from DS1 (equity prices) and DS2 (index and factor prices).
 
 Everything here reduces a window of price history to a **single row** of
 numbers describing the state of the stock as of that window's end. One as-of
@@ -22,12 +22,24 @@ prefix -- letting you ask "do the text features add anything over the price
 features alone?", which is the first question worth answering about this
 project.
 
-    ret_*    returns over various lookbacks
-    vol_*    realised volatility, at several horizons
-    risk_*   Chapter 5/6 risk measures: Sharpe, VaR, drawdown, moments
-    scl_*    Chapter 8 single-index regression against each index
-    tech_*   ordinary technical descriptors: RSI, moving-average distance
+    ret_*     returns over various lookbacks
+    vol_*     realised volatility, at several horizons
+    risk_*    Chapter 5/6 risk measures: Sharpe, VaR, drawdown, moments
+    scl_*     Chapter 8 single-index regression against each index
+    capm_*    Chapter 9 SML fair return and the gap to realised return
+    ff_*      Chapter 10 joint multifactor loadings against market/SMB/HML
+    evt_*     Chapter 11 abnormal returns, CAR, momentum and reversal
+    tech_*    Chapter 12 technicals: RSI, MA distance, crossovers, relative strength
     vol_liq_* volume and liquidity
+
+**On the Chapter 11 features specifically.** `evt_momentum_12_1` and
+`evt_reversal_24_36m` are not redundant with `eq_ret_252d` and `eq_ret_504d`,
+even though they read the same price series. The raw lookbacks are total
+returns over a span; the anomaly features are the *published specifications* of
+two documented effects, which deliberately exclude the most recent month
+(because one-month reversal points the opposite way to twelve-month momentum
+and mixing them attenuates both). Emitting both lets the ablation say whether
+the specification mattered or whether the model could find it either way.
 """
 
 from __future__ import annotations
@@ -37,7 +49,16 @@ import logging
 import numpy as np
 import pandas as pd
 
-from ..finance import index_model, returns as ret, risk
+from ..config import DEFAULT_FACTOR_TICKERS, DEFAULT_MARKET_RISK_PREMIUM
+from ..finance import (
+    capm,
+    event_study,
+    index_model,
+    multifactor,
+    returns as ret,
+    risk,
+    technical,
+)
 from ..finance.returns import TRADING_DAYS_PER_YEAR
 
 log = logging.getLogger(__name__)
@@ -58,7 +79,7 @@ def _last(series: pd.Series) -> float:
 
 
 def price_features(prices: pd.DataFrame, risk_free: pd.Series | None = None,
-                   prefix: str = "eq") -> dict[str, float]:
+                   prefix: str = "eq", *, anomalies: bool = True) -> dict[str, float]:
     """Reduce one equity price window (DS1) to a feature row.
 
     `risk_free` is an annual decimal rate indexed by date, from FRED. When it
@@ -148,6 +169,32 @@ def price_features(prices: pd.DataFrame, risk_free: pd.Series | None = None,
     f[f"{prefix}_tech_pct_from_52w_high"] = _pct_from_extreme(px, 252, high=True)
     f[f"{prefix}_tech_pct_from_52w_low"] = _pct_from_extreme(px, 252, high=False)
 
+    # Chapter 12's actual moving-average signal. The `sma_dist` features above
+    # give the distance; these give the crossing, which is the event a
+    # technician acts on. A stock that has sat above its 50-day average for
+    # eight months is not a breakout, and distance alone cannot say so.
+    f[f"{prefix}_tech_ma_cross_50d"] = technical.ma_crossover_state(px, 50)
+    f[f"{prefix}_tech_ma_cross_200d"] = technical.ma_crossover_state(px, 200)
+    f[f"{prefix}_tech_ma_cross_age_50d"] = technical.ma_crossover_age(px, 50)
+
+    # --- Chapter 11 anomalies ---------------------------------------------
+    # The published specifications, not raw lookbacks. See the module docstring
+    # on why these are not duplicates of `ret_252d` and `ret_504d`.
+    #
+    # Stocks only. LO4 is explicit that broad market indexes show only weak
+    # serial correlation while individual stocks and sectors show pronounced
+    # momentum and reversal -- these are cross-sectional equity anomalies, and
+    # an index's own momentum is not the thing the literature documents.
+    #
+    # There is a mechanical reason too: DS2 index frames span two years
+    # (`WindowSpec.index_years`) and `long_horizon_reversal` needs three, so
+    # emitting it here produced a column that was NaN in every row of every
+    # panel. An all-NaN feature is not missing data, it is a dead column that
+    # the imputer then warns about once per fit.
+    if anomalies:
+        f[f"{prefix}_evt_momentum_12_1"] = event_study.momentum_12_1(px)
+        f[f"{prefix}_evt_reversal_24_36m"] = event_study.long_horizon_reversal(px)
+
     # --- volume / liquidity ----------------------------------------------
     if "volume" in prices and prices["volume"].notna().any():
         vol = prices["volume"].dropna()
@@ -165,7 +212,7 @@ def price_features(prices: pd.DataFrame, risk_free: pd.Series | None = None,
 
 
 def index_features(indices: dict[str, pd.DataFrame], risk_free: pd.Series | None = None) -> dict[str, float]:
-    """Reduce DS4 to a feature row: one block per index.
+    """Reduce DS2 to a feature row: one block per index.
 
     The same `price_features` treatment applied to each index, prefixed by a
     cleaned ticker. `^VIX` gets included and is worth keeping even though it is
@@ -176,7 +223,9 @@ def index_features(indices: dict[str, pd.DataFrame], risk_free: pd.Series | None
     out: dict[str, float] = {}
     for ticker, frame in indices.items():
         key = ticker.lstrip("^").lower()
-        out.update(price_features(frame, risk_free, prefix=f"idx_{key}"))
+        # `anomalies=False`: momentum and reversal are stock-level effects, and
+        # index frames span only two years anyway -- see `price_features`.
+        out.update(price_features(frame, risk_free, prefix=f"idx_{key}", anomalies=False))
     return out
 
 
@@ -184,8 +233,11 @@ def relative_features(
     equity: pd.DataFrame,
     indices: dict[str, pd.DataFrame],
     risk_free: pd.Series | None = None,
+    *,
+    benchmark: str = "^GSPC",
+    factor_tickers: tuple[str, ...] = DEFAULT_FACTOR_TICKERS,
 ) -> dict[str, float]:
-    """Chapter 8: the stock regressed on each index. The core of DS1 x DS4.
+    """Chapters 8-12: the stock measured against the indices. The core of DS1 x DS2.
 
     This is where the two tabular datasets stop being separate. For each index
     we fit the Security Characteristic Line and emit alpha, beta, R-square,
@@ -202,6 +254,30 @@ def relative_features(
     `scl_beta_delta` is emitted for the same reason `rolling_beta` exists: a
     beta that is moving tells you the name's sensitivity is changing, which
     shifts predictive weight between the datasets.
+
+    Four chapters now land in this one function, because all four are
+    statements about a stock relative to a market and they share the same
+    aligned excess-return series -- computing that series once and reusing it
+    is both cheaper and safer than four call sites each doing their own join.
+
+        Ch 8   `scl_*`   one univariate SCL per index
+        Ch 9   `capm_*`  the SML fair return implied by the fitted beta, and
+                         the gap between it and what the stock actually did
+        Ch 10  `ff_*`    one *joint* regression on market + SMB + HML proxies
+        Ch 11  `evt_*`   abnormal returns and CAR against the market model
+        Ch 12  `tech_rs_*` relative strength against the benchmark
+
+    **The Chapter 9 features are the subtle ones.** `capm_alpha_realised` is
+    not the same object as `scl_gspc_alpha`, even though both are called alpha.
+    The SCL alpha is a regression intercept -- the average daily excess return
+    unexplained by the market, over five years. `capm_alpha_realised` compares
+    the stock's *trailing annual return* against the SML's fair return for its
+    beta, using a market risk premium estimated from the index itself. The
+    first is an average of residuals; the second is a single statement about
+    whether the last year over- or under-delivered against what the beta
+    entitled it to. They correlate but answer different questions, and the
+    second is the one that has a forward analogue -- which is what
+    `/api/predict` reports once the model produces a forecast.
     """
     out: dict[str, float] = {}
     if equity.empty or "adj_close" not in equity:
@@ -214,6 +290,14 @@ def relative_features(
     rf_daily = _daily_risk_free(risk_free, stock_ret.index)
     stock_excess = (stock_ret - rf_daily).dropna()
 
+    # Log returns per index, computed once. Four chapters read these, and each
+    # recomputing them would be both slower and a chance for two blocks to
+    # disagree about which days were dropped.
+    index_returns: dict[str, pd.Series] = {}
+    for ticker, frame in indices.items():
+        if not frame.empty and "adj_close" in frame:
+            index_returns[ticker] = ret.log_returns(frame["adj_close"]).dropna()
+
     for ticker, frame in indices.items():
         if frame.empty or "adj_close" not in frame:
             continue
@@ -221,6 +305,11 @@ def relative_features(
         # stock on it produces a "beta" with no Chapter 8 interpretation. Its
         # level is used as a feature in index_features instead.
         if ticker == "^VIX":
+            continue
+        # The factor-proxy ETFs are regressed jointly below, not one at a time.
+        # A univariate SCL against a value ETF would report a beta near 1 for
+        # almost any large-cap name and say nothing.
+        if ticker in factor_tickers:
             continue
 
         key = ticker.lstrip("^").lower()
@@ -254,6 +343,181 @@ def relative_features(
         except Exception as exc:
             log.debug("rolling beta failed for %s: %s", ticker, exc)
 
+        # --- Chapter 9: the SML, per index ---------------------------------
+        out.update(_capm_features(equity, frame, scl.beta, risk_free, key))
+
+        # --- Chapter 11: abnormal returns against this index ---------------
+        out.update(_event_features(stock_ret, mkt_ret, key))
+
+        # --- Chapter 12: relative strength ---------------------------------
+        if ticker == benchmark:
+            bench_px = frame["adj_close"].dropna()
+            equity_px = equity["adj_close"].dropna()
+            out["tech_rs_63d"] = technical.relative_strength(equity_px, bench_px, 63)
+            out["tech_rs_252d"] = technical.relative_strength(equity_px, bench_px, 252)
+            out["tech_rs_trend_63d"] = technical.relative_strength_trend(
+                equity_px, bench_px, 63)
+
+    # --- Chapter 10: one joint multifactor regression ----------------------
+    out.update(_multifactor_features(stock_excess, index_returns, risk_free,
+                                     benchmark, factor_tickers))
+
+    return out
+
+
+def _capm_features(
+    equity: pd.DataFrame,
+    index_frame: pd.DataFrame,
+    beta: float,
+    risk_free: pd.Series | None,
+    key: str,
+) -> dict[str, float]:
+    """Chapter 9: the SML fair return, and how far the stock sat from it.
+
+    Every rate here is annual, which is the trap this function exists to close.
+    `capm.sml_alpha` cannot detect a caller mixing an annualised return with a
+    daily risk-free rate -- it returns a number that is wrong by two orders of
+    magnitude and looks entirely plausible. Doing the annualisation in one
+    place means no other call site has to get it right.
+    """
+    out: dict[str, float] = {}
+    if not np.isfinite(beta):
+        return out
+
+    idx_px = index_frame["adj_close"].dropna()
+    px = equity["adj_close"].dropna()
+    if len(idx_px) < 253 or len(px) < 253:
+        return out
+
+    rf_annual = _last(risk_free) / 100.0 if risk_free is not None and len(risk_free) else 0.04
+    if not np.isfinite(rf_annual):
+        rf_annual = 0.04
+
+    # The premium estimated from this index's *full* available history, not
+    # just the trailing year, and shrunk toward the textbook 8%. Chapter 9 is
+    # explicit that the MRP is not observable, and the sample mean of one year
+    # of index returns has a standard error several times the premium it is
+    # estimating -- see `capm.realised_market_risk_premium`. Using every bar on
+    # hand and shrinking is what keeps this from being a noise generator that
+    # occasionally inverts the SML.
+    mrp = capm.realised_market_risk_premium(
+        ret.log_returns(idx_px).dropna(), rf_annual)
+    used_default = not np.isfinite(mrp)
+    if used_default:
+        mrp = DEFAULT_MARKET_RISK_PREMIUM
+
+    fair = capm.sml_expected_return(beta, rf_annual, mrp)
+    realised = float(np.expm1(np.log(px.iloc[-1] / px.iloc[-253])))
+
+    out[f"capm_{key}_fair_return"] = fair
+    out[f"capm_{key}_market_risk_premium"] = mrp
+    # Realised annual return minus the SML's fair return. Positive means the
+    # stock over-delivered against what its beta entitled it to over the past
+    # year. This is backward-looking; the forward version is what
+    # `/api/predict` computes from the model's forecast.
+    out[f"capm_{key}_alpha_realised"] = capm.sml_alpha(realised, beta, rf_annual, mrp)
+    out[f"capm_{key}_mrp_is_default"] = 1.0 if used_default else 0.0
+    return out
+
+
+def _event_features(stock_ret: pd.Series, mkt_ret: pd.Series, key: str) -> dict[str, float]:
+    """Chapter 11: cumulative abnormal return over the most recent month.
+
+    Follows LO3's methodological rule literally. The market model's alpha and
+    beta are fitted on an **estimation window that ends before the event window
+    begins**, so the benchmark cannot be contaminated by the abnormal
+    performance it is meant to measure. Fitting on the whole series and then
+    measuring its tail -- the obvious shortcut -- biases every CAR toward zero,
+    because the residuals it measures are the same residuals it minimised.
+
+    Note this fits on **total** returns, not excess: Chapter 11's market model
+    is `r = alpha + beta*r_M + e`, where Chapter 8's SCL is the excess-return
+    form. See `event_study.abnormal_return` on why the two alphas differ.
+    """
+    out: dict[str, float] = {}
+    joined = pd.concat({"stock": stock_ret, "market": mkt_ret}, axis=1, join="inner").dropna()
+
+    event_days = 21
+    estimation_days = 252
+    if len(joined) < estimation_days + event_days + 10:
+        return out
+
+    estimation = joined.iloc[-(estimation_days + event_days):-event_days]
+    event = joined.iloc[-event_days:]
+
+    try:
+        # `fit_scl` is an OLS of one series on another; passing total returns
+        # gives the Chapter 11 market model rather than the Chapter 8 SCL. Same
+        # arithmetic, different convention, and the docstring above says which.
+        market_model = index_model.fit_scl(estimation["stock"], estimation["market"])
+    except ValueError as exc:
+        log.debug("market model fit failed for %s: %s", key, exc)
+        return out
+
+    window = event_study.cumulative_abnormal_return(
+        event["stock"], event["market"], market_model.alpha, market_model.beta)
+
+    out[f"evt_{key}_car_21d"] = window.car
+    out[f"evt_{key}_car_tstat"] = window.tstat
+    out[f"evt_{key}_abnormal_std"] = window.std_abnormal
+    return out
+
+
+def _multifactor_features(
+    stock_excess: pd.Series,
+    index_returns: dict[str, pd.Series],
+    risk_free: pd.Series | None,
+    benchmark: str,
+    factor_tickers: tuple[str, ...],
+) -> dict[str, float]:
+    """Chapter 10: one joint regression on market, SMB proxy, and HML proxy.
+
+    Emitted only when every factor is available. Partial factor sets are
+    deliberately not backfilled with a two-factor fit, because a loading from a
+    two-factor model is not comparable to the same-named loading from a
+    three-factor one -- and a panel where `ff_beta_market` silently means
+    different things on different rows is worse than one where it is absent.
+    """
+    out: dict[str, float] = {}
+
+    market = index_returns.get(benchmark)
+    small = index_returns.get("^RUT")
+    value_ticker, growth_ticker = (tuple(factor_tickers) + ("", ""))[:2]
+    value, growth = index_returns.get(value_ticker), index_returns.get(growth_ticker)
+
+    if market is None or small is None or value is None or growth is None:
+        return out
+
+    rf_daily = _daily_risk_free(risk_free, market.index)
+    factors = {
+        "market": (market - rf_daily).dropna(),
+        # SMB and HML are already long-short spreads: self-financing, so
+        # subtracting r_f from them would be a genuine error rather than a
+        # harmless one. See `multifactor.fit_multifactor`.
+        "smb": multifactor.smb_proxy(small, market),
+        "hml": multifactor.hml_proxy(value, growth),
+    }
+
+    try:
+        fit = multifactor.fit_multifactor(stock_excess, factors)
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        log.debug("multifactor fit failed: %s", exc)
+        return out
+
+    for name, beta in fit.betas.items():
+        out[f"ff_beta_{name}"] = beta
+        out[f"ff_tstat_{name}"] = fit.tstat(name)
+
+    out["ff_alpha"] = fit.alpha
+    out["ff_alpha_annual"] = fit.annualized_alpha
+    out["ff_r_squared"] = fit.r_squared
+    out["ff_adj_r_squared"] = fit.adj_r_squared
+    out["ff_residual_std"] = fit.residual_std
+    # Compare against `scl_gspc_firm_specific_share`. If the multifactor model
+    # explains much more, the single-index model was mislabelling systematic
+    # variance as firm-specific -- meaning DS3 was being asked to explain moves
+    # that were never company-specific to begin with.
+    out["ff_firm_specific_share"] = fit.firm_specific_variance_share
     return out
 
 

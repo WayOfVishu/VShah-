@@ -9,7 +9,7 @@ the same process.
 Four route groups:
 
     /api/resolve   free text -> ticker candidates
-    /api/datasets  the five datasets for a ticker, summarised
+    /api/datasets  the retrieval windows for a ticker, summarised
     /api/predict   the 30-day forecast plus a Chapter 6 position recommendation
     /api/health    liveness, and which providers resolved
 
@@ -19,7 +19,7 @@ script, in the same shape as the Jobs dashboard's `public/`. A bundler here
 would add a toolchain to maintain and buy nothing, since the page loads three
 files and imports nothing.
 
-**On latency.** A cold `/api/predict` builds all five datasets, which means a
+**On latency.** A cold `/api/predict` builds every dataset, which means a
 dozen provider calls with rate limits between them -- a minute or two, not
 milliseconds. The disk cache makes repeat calls fast, but a first request for
 an unseen ticker will be slow, and the frontend shows a paced progress list
@@ -91,6 +91,7 @@ def health() -> dict:
         "news": registry.news.name,
         "community": registry.community.name if registry.community else None,
         "macro_text": registry.macro_text.name,
+        "sentiment": registry.sentiment.name,
         "macro_numeric": registry.macro_numeric.name,
     }
     # Named rather than a bare boolean. "synthetic: true" because FRED has no

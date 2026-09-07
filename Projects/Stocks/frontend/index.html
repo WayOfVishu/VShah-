@@ -169,13 +169,57 @@
       <div class="stat">
         <span class="stat-label">Sentiment shift</span>
         <span class="stat-value" id="statSentiment">–</span>
-        <span class="stat-note">recent 2mo vs prior 10mo</span>
+        <span class="stat-note" id="statSentimentNote">recent 2mo vs prior 10mo</span>
       </div>
       <div class="stat">
         <span class="stat-label">Attention ratio</span>
         <span class="stat-value" id="statAttention">–</span>
         <span class="stat-note">coverage per day, recent vs baseline</span>
       </div>
+    </div>
+
+    <!-- DS3's own account of itself. A sentiment score with no traceable
+         reason is not something to ask anyone to act on, and a bad brief is
+         obvious at a glance here in a way it never is from a number. -->
+    <div class="brief" id="brief" hidden>
+      <h3>What the coverage said <span class="tag" id="briefSource">–</span></h3>
+      <p class="brief-rationale" id="briefRationale">–</p>
+      <div class="brief-themes" id="briefThemes"></div>
+      <p class="muted small" id="briefConfidence"></p>
+    </div>
+
+    <!-- Chapter 9. This sits above the allocation on purpose: "is it mispriced"
+         comes before "how much should I hold", and a forecast read without its
+         fair-return benchmark is the thing this block exists to prevent. -->
+    <div class="valuation" id="valuation">
+      <h3>Against the security market line <span class="tag">Chapter&nbsp;9</span></h3>
+
+      <div class="sml" id="sml">
+        <div class="sml-row">
+          <span class="sml-label">Fair return for this beta</span>
+          <span class="sml-value" id="valFair">–</span>
+        </div>
+        <div class="sml-row">
+          <span class="sml-label">Forecast, annualised</span>
+          <span class="sml-value" id="valForecast">–</span>
+        </div>
+        <div class="sml-row sml-row-alpha">
+          <span class="sml-label">Alpha <span class="muted">(forecast − fair)</span></span>
+          <span class="sml-value" id="valAlpha">–</span>
+          <span class="verdict" id="valVerdict">–</span>
+        </div>
+      </div>
+
+      <p class="alloc-note" id="valNote">–</p>
+
+      <p class="muted small" id="valCaveat">
+        <span class="mono">α = E(r) − [r_f + β·(E(r_M) − r_f)]</span>.
+        The market risk premium is not observable and is estimated here; alphas
+        inside ±1% are reported as fairly priced because the premium's own
+        uncertainty is wider than that. Chapter&nbsp;11's joint-hypothesis
+        problem applies: a non-zero alpha is equally evidence that the CAPM is
+        the wrong benchmark for this name.
+      </p>
     </div>
 
     <!-- Chapter 6 capital allocation. The forecast alone is not a decision;
@@ -196,7 +240,7 @@
 
   <!-- Datasets -->
   <section class="panel" id="datasetPanel" hidden>
-    <h2>The five datasets</h2>
+    <h2>The datasets</h2>
     <p class="muted small">
       What was actually gathered, and where each piece came from. A result built
       on generated data is flagged — check here before reading anything above.

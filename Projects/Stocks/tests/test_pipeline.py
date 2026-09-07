@@ -20,6 +20,7 @@ from stocks.evaluate import (
     purge_gap_rows,
     regression_report,
 )
+from stocks.features import tabular
 from stocks.features.assemble import META_PREFIX, TEXT_PREFIX, build_panel, build_row
 from stocks.ingest.registry import Registry, build_datasets
 from stocks.windows import Dataset
@@ -74,13 +75,41 @@ class TestBundle:
 class TestBuildRow:
     def test_produces_features_from_every_dataset(self, registry):
         row = build_row(build_datasets("TEST", END, registry=registry))
-        for prefix in ("eq_", "idx_", "scl_", "ds2_", "ds3_", "ds5_", "shift_", "macro_"):
+        for prefix in ("eq_", "idx_", "scl_", "capm_", "evt_", "tech_rs_",
+                       "gem_", "ds2_", "ds3_", "ds5_", "shift_", "macro_"):
             assert any(k.startswith(prefix) for k in row), f"no {prefix}* features"
 
-    def test_emits_the_three_raw_corpora(self, registry):
+    def test_raw_corpora_are_off_by_default(self, registry):
+        """The TF-IDF blocks are opt-in now; DS3 arrives as `gem_*` scores.
+
+        Guarding the default rather than the flag, because the failure mode
+        that matters is a panel silently regaining 72 SVD columns -- which
+        costs an overnight sweep to discover and nothing to prevent.
+        """
         row = build_row(build_datasets("TEST", END, registry=registry))
+        assert not any(k.startswith(TEXT_PREFIX) for k in row)
+
+    def test_raw_corpora_come_back_when_asked_for(self, registry):
+        """`include_raw_text=True` restores them, for #ML-6's ablation."""
+        row = build_row(build_datasets("TEST", END, registry=registry),
+                        include_raw_text=True)
         for name in ("baseline", "recent", "macro"):
             assert isinstance(row[f"{TEXT_PREFIX}{name}"], str)
+
+    def test_emits_the_synthesised_sentiment_block(self, registry):
+        """DS3 must produce named scores, not opaque components."""
+        row = build_row(build_datasets("TEST", END, registry=registry))
+        for name in ("gem_recent_sentiment", "gem_sentiment_shift",
+                     "gem_attention_level", "gem_macro_divergence",
+                     "gem_n_missing", "gem_is_synthetic"):
+            assert name in row, f"missing {name}"
+
+    def test_grounding_mode_is_recorded_as_meta_not_as_a_feature(self, registry):
+        """A panel built with strict grounding and one without are not
+        comparable, so which regime produced a row has to survive to disk --
+        but it must never reach the model."""
+        row = build_row(build_datasets("TEST", END, registry=registry))
+        assert row[f"{META_PREFIX}grounding"] == "synthetic"
 
     def test_chapter_8_regression_features_are_present_and_sane(self, registry):
         row = build_row(build_datasets("TEST", END, registry=registry))
@@ -137,7 +166,9 @@ class TestPipeline:
         assert not any(c.startswith(META_PREFIX) for c in numeric + text)
         assert "target" not in numeric
         assert all(c.startswith(TEXT_PREFIX) for c in text)
-        assert len(text) == 3
+        # Zero by default: the raw corpora were replaced by the `gem_*` block.
+        # `build_row(include_raw_text=True)` puts three back.
+        assert len(text) == 0
 
     def test_fits_and_predicts(self, panel):
         pipe = build_pipeline(panel)
@@ -314,3 +345,141 @@ class TestResolve:
         from stocks.resolve import resolve
 
         assert resolve("   ") == ()
+
+
+class TestTimezoneNormalisation:
+    """The class of bug the synthetic fixtures were hiding.
+
+    `SyntheticPriceProvider` emits timezone-naive timestamps and so does FRED,
+    so every test in this suite matched by accident. yfinance emits
+    `datetime64[s, America/New_York]`, and the moment that met the naive
+    risk-free series in `_daily_risk_free`, pandas raised
+
+        TypeError: Cannot compare dtypes datetime64[us] and
+                   datetime64[s, America/New_York]
+
+    and the whole feature row died. `/api/predict` had never once worked against
+    live prices; the fixture that was supposed to prove the pipeline ran was the
+    reason nobody found out.
+
+    So these tests build tz-aware frames **on purpose**. A synthetic fixture that
+    only ever produces the easy case is not a test of the hard one.
+    """
+
+    @staticmethod
+    def _tz_aware_prices(n: int = 400) -> pd.DataFrame:
+        """Daily bars indexed the way yfinance actually returns them."""
+        idx = pd.date_range("2023-01-03 09:30", periods=n, freq="B",
+                            tz="America/New_York")
+        close = pd.Series(100.0 * (1.0 + 0.0004) ** np.arange(n), index=idx)
+        return pd.DataFrame({
+            "open": close, "high": close * 1.01, "low": close * 0.99,
+            "close": close, "adj_close": close,
+            "volume": pd.Series(1_000_000.0, index=idx),
+        })
+
+    def test_clip_frame_strips_the_timezone(self):
+        from stocks.ingest.base import BaseProvider
+        from stocks.windows import DateWindow
+
+        frame = self._tz_aware_prices()
+        assert frame.index.tz is not None, "fixture must start tz-aware or it proves nothing"
+
+        clipped = BaseProvider.clip_frame(
+            frame, DateWindow(date(2023, 1, 1), date(2024, 1, 1)))
+        assert clipped.index.tz is None
+        assert not clipped.empty
+
+    def test_clip_frame_normalises_to_midnight(self):
+        """Dropping the zone is not enough on its own.
+
+        A bar stamped 09:30 and a FRED reading stamped 00:00 are different keys
+        even once both are naive, so a reindex would silently forward-fill the
+        wrong row rather than raise. Midnight is what makes the join correct.
+        """
+        from stocks.ingest.base import BaseProvider
+        from stocks.windows import DateWindow
+
+        clipped = BaseProvider.clip_frame(
+            self._tz_aware_prices(), DateWindow(date(2023, 1, 1), date(2024, 1, 1)))
+        assert (clipped.index.normalize() == clipped.index).all()
+
+    def test_tz_conversion_does_not_shift_the_calendar_day(self):
+        """`tz_convert(None)` then normalise, not `tz_localize(None)`.
+
+        A New-York bar at 09:30 is 14:30 UTC -- same day. Getting this backwards
+        moves bars across midnight for some zones, which shifts a price one day
+        relative to its label. That is a leakage bug wearing a timezone costume,
+        and it would not raise.
+        """
+        from stocks.ingest.base import to_naive_date_index
+
+        frame = self._tz_aware_prices(n=5)
+        expected = [ts.date() for ts in frame.index]
+        got = [ts.date() for ts in to_naive_date_index(frame).index]
+        assert got == expected
+
+    def test_features_survive_a_tz_aware_price_frame(self):
+        """The end-to-end assertion: the exact path that crashed on live data."""
+        from stocks.ingest.base import BaseProvider
+        from stocks.ingest.macro import constant_risk_free
+        from stocks.windows import DateWindow
+
+        window = DateWindow(date(2023, 1, 1), date(2024, 1, 1))
+        equity = BaseProvider.clip_frame(self._tz_aware_prices(), window)
+        index = BaseProvider.clip_frame(self._tz_aware_prices(), window)
+
+        row = tabular.relative_features(
+            equity, {"^GSPC": index}, constant_risk_free(window))
+        assert row, "relative_features returned nothing on a tz-aware frame"
+        assert "scl_gspc_beta" in row
+
+    def test_price_features_survive_a_tz_aware_frame(self):
+        from stocks.ingest.base import BaseProvider
+        from stocks.ingest.macro import constant_risk_free
+        from stocks.windows import DateWindow
+
+        window = DateWindow(date(2023, 1, 1), date(2024, 1, 1))
+        equity = BaseProvider.clip_frame(self._tz_aware_prices(), window)
+        row = tabular.price_features(equity, constant_risk_free(window), prefix="eq")
+        assert np.isfinite(row["eq_ret_21d"])
+
+    def test_cache_read_heals_a_stale_tz_aware_parquet(self, tmp_path):
+        """Cache hits return before `clip_frame` runs.
+
+        `YFinanceProvider.fetch_prices` checks the cache and returns early, so
+        normalising only on write would leave every parquet already on disk
+        serving a tz-aware index forever -- and the fix would appear to work
+        while quietly failing for anyone with a warm cache.
+        """
+        from stocks.ingest.base import DiskCache
+        from stocks.windows import DateWindow
+
+        cache = DiskCache(tmp_path, ttl_hours=12)
+        window = DateWindow(date(2023, 1, 1), date(2024, 1, 1))
+
+        # Write a tz-aware frame directly, as an older checkout would have.
+        stale = self._tz_aware_prices(n=50)
+        assert stale.index.tz is not None
+        cache.put_frame("yfinance", "prices", "AAPL", window, stale)
+
+        healed = cache.get_frame("yfinance", "prices", "AAPL", window)
+        assert healed is not None
+        assert healed.index.tz is None
+        assert (healed.index.normalize() == healed.index).all()
+
+    def test_naive_frames_pass_through_unchanged(self):
+        """The fix must not disturb the case that already worked."""
+        from stocks.ingest.base import to_naive_date_index
+
+        idx = pd.date_range("2023-01-03", periods=10, freq="B")
+        frame = pd.DataFrame({"adj_close": np.arange(10.0)}, index=idx)
+        out = to_naive_date_index(frame)
+        assert out.index.equals(idx)
+        assert out["adj_close"].tolist() == frame["adj_close"].tolist()
+
+    def test_empty_frame_is_returned_as_is(self):
+        from stocks.ingest.base import to_naive_date_index
+
+        empty = pd.DataFrame()
+        assert to_naive_date_index(empty).empty

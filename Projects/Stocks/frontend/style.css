@@ -317,6 +317,87 @@ input:focus, select:focus { outline: 2px solid var(--accent-dim); border-color: 
 .alloc-fill.is-levered { background: var(--accent); }
 .alloc-note { font-size: 0.88rem; margin: 0.6rem 0 0.5rem; }
 
+/* ---------- Valuation (Chapter 9) ---------- */
+/* Deliberately quieter than the allocation block below it. This is a
+   comparison against a benchmark, not a recommendation, and styling it as
+   loudly as the position sizer would overstate what an alpha built on an
+   estimated risk premium can support. */
+.valuation { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+.valuation h3 { font-size: 0.95rem; margin-bottom: 0.8rem; }
+
+.sml {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+}
+.sml-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.35rem 0;
+}
+/* The alpha is the row that matters, so it gets the rule above it and the
+   larger type -- the two numbers above are its inputs, not its equals. */
+.sml-row-alpha {
+  border-top: 1px solid var(--line);
+  margin-top: 0.35rem;
+  padding-top: 0.6rem;
+}
+.sml-label { font-size: 0.82rem; color: var(--muted); }
+.sml-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  margin-left: auto;
+}
+.sml-row-alpha .sml-value { font-size: 1.15rem; font-weight: 600; }
+.sml-value.is-positive { color: var(--green); }
+.sml-value.is-negative { color: var(--danger); }
+
+.verdict {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  white-space: nowrap;
+}
+.verdict-good { color: var(--green); border: 1px solid var(--green); }
+.verdict-bad { color: var(--danger); border: 1px solid var(--danger); }
+/* Grey, not amber: "fairly priced" is the answer most of the time and should
+   read as unremarkable rather than as a third kind of signal. */
+.verdict-neutral { color: var(--grey); border: 1px solid var(--grey); }
+
+/* Raised from a footnote to a warning when the alpha rests on the textbook
+   premium rather than this market's own history. */
+.small.is-warning {
+  color: #f3ccc5;
+  background: #2b1715;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+}
+
+/* ---------- DS3 brief ---------- */
+.brief { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+.brief h3 { font-size: 0.95rem; margin-bottom: 0.6rem; }
+.brief-rationale { font-size: 0.88rem; margin: 0 0 0.7rem; }
+.brief-themes { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+.theme {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--teal);
+  border: 1px solid var(--teal);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+}
+/* A brief produced by the word-list fallback must not wear the same badge as
+   one a model actually reasoned about. */
+.tag.tag-warn { color: var(--danger); border-color: var(--danger); }
+
 /* ---------- Datasets ---------- */
 .dataset-grid {
   display: grid;

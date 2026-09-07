@@ -1,0 +1,17 @@
+# Ignore every virtual environment in this folder, keep Requirements/ tracked.
+#
+# `**` excludes everything at every depth, then the negations carve exceptions
+# back out. (A bare `*` behaves the same here — both were verified.)
+# Order matters, and so does the middle line: git will not re-include a file
+# whose parent directory is still excluded, so `Requirements/` has to be
+# un-excluded before `Requirements/**` can match anything inside it.
+
+*
+
+# Without this, the pattern above matches this very file and git refuses to
+# track it.
+# The rules would still work locally and then vanish on the next clone.
+!.gitignore
+
+!Requirements/
+!Requirements/**

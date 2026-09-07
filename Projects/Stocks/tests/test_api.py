@@ -5,7 +5,7 @@ the assertions here only depend on the alias table, which is local, so the
 tests pass with the network down.
 
 `/api/datasets` and `/api/predict` are *not* covered end-to-end: both build all
-five datasets, which against live providers is a couple of minutes and a dozen
+every dataset, which against live providers is a couple of minutes and a dozen
 rate-limited calls. Their component parts are covered in `test_pipeline.py`;
 what is checked here is the wiring — schemas, status codes, and the provenance
 fields that stop a synthetic run being mistaken for a real one.
@@ -33,7 +33,8 @@ class TestHealth:
         body = r.json()
         assert body["status"] == "ok"
         assert set(body["providers"]) == {
-            "prices", "news", "community", "macro_text", "macro_numeric"
+            "prices", "news", "community", "macro_text", "macro_numeric",
+            "sentiment",
         }
 
     def test_names_which_slots_are_synthetic(self, client):

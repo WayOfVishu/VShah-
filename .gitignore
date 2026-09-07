@@ -18,6 +18,18 @@ References/*.exe
 *.dmg
 *.iso
 
+# --- build output ---------------------------------------------------------
+# A CMake build tree at the repo root was tracked by accident (58 files:
+# CMakeCache.txt with machine-specific absolute paths, compiled binaries, and
+# a FetchContent clone of nlohmann/json). That clone carried its own .git, so
+# `git add -A` recorded it as a *submodule reference* with no matching entry
+# in .gitmodules — which made `git submodule update --init` fail outright with
+# "No url found for submodule path 'build/_deps/json-src'".
+#
+# Projects/Hardware-Check/.gitignore already ignores `build/`, but that rule
+# is scoped to that folder and does not reach a build tree at the root.
+/build/
+
 # --- python --------------------------------------------------------------
 __pycache__/
 *.py[cod]
@@ -25,10 +37,12 @@ __pycache__/
 .ruff_cache/
 .ipynb_checkpoints/
 
-# Virtual environments, listed explicitly — git cannot recognise a venv by its
-# contents, so an unlisted one dumps thousands of files into `git status`.
-Projects/Stocks/stocks-env/
-Projects/Portfolio/backend/portfolio/
+# Virtual environments. The project ones now live together under
+# "Virtual Environments/", which has its own .gitignore doing the work — it
+# ignores everything in that folder except Requirements/. These two catch the
+# conventional names anywhere else in the tree, since git cannot recognise a
+# venv by its contents and an unlisted one dumps thousands of files into
+# `git status`.
 .venv/
 venv/
 

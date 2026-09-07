@@ -69,13 +69,28 @@ DEFAULT_HORIZON_DAYS = 21
 
 
 class Dataset(str, Enum):
-    """The five datasets, named once so nothing downstream uses a raw string."""
+    """The five *retrieval* windows, named once so nothing uses a raw string.
 
-    PRICES_EQUITY = "prices_equity"      # DS1 . tabular . 5 years of the target stock
-    NEWS_BASELINE = "news_baseline"      # DS2 . text    . 12 months ago -> 2 months ago
-    NEWS_RECENT = "news_recent"          # DS3 . text    . the most recent 2 months
-    PRICES_INDEX = "prices_index"        # DS4 . tabular . 2 years of S&P 500 / NASDAQ
-    MACRO = "macro"                      # DS5 . text    . 6 months of political/economic
+    These are fetch windows, not the datasets the model sees. Three of them --
+    the two news windows and the macro window -- are now inputs to the Gemini
+    synthesis step rather than model inputs in their own right, so what reaches
+    `pipeline.py` is three datasets, not five:
+
+        DS1  the stock's own price history      <- PRICES_EQUITY
+        DS2  the indices and factor proxies     <- PRICES_INDEX
+        DS3  the synthesised sentiment brief    <- NEWS_BASELINE + NEWS_RECENT + MACRO
+
+    The enum keeps all five because every one is still a distinct window that
+    has to be requested, cached, and clipped separately -- collapsing them here
+    would lose the point-in-time boundaries that make the panel honest. See
+    `ingest/registry.py` for the retrieval-versus-synthesis split.
+    """
+
+    PRICES_EQUITY = "prices_equity"      # tabular . 5 years of the target stock
+    NEWS_BASELINE = "news_baseline"      # text    . 12 months ago -> 2 months ago
+    NEWS_RECENT = "news_recent"          # text    . the most recent 2 months
+    PRICES_INDEX = "prices_index"        # tabular . 2 years of indices + factor ETFs
+    MACRO = "macro"                      # text    . 6 months of political/economic
 
     @property
     def is_text(self) -> bool:
