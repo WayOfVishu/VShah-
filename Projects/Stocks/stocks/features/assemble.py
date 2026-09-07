@@ -1,4 +1,4 @@
-"""Assemble the five datasets into one training row, and rows into a panel.
+"""Assemble the datasets into one training row, and rows into a panel.
 
     build_row(bundle)          one DatasetBundle -> one feature row
     build_panel(symbols, ...)  a walk-forward sweep -> the training DataFrame
@@ -8,9 +8,29 @@ The output frame has three kinds of column, distinguished by prefix, and
 `pipeline.py` routes them to different transformers on that basis:
 
     meta_*   symbol, as_of, provenance. Never features. Dropped before fitting.
-    text_*   raw strings, for TfidfVectorizer inside the pipeline.
-    <rest>   numeric features -- eq_, idx_, scl_, ds2_, ds3_, ds5_, shift_.
+    text_*   raw strings, for TfidfVectorizer. **Empty by default now** -- see below.
+    <rest>   numeric features -- eq_, idx_, scl_, capm_, ff_, evt_, tech_, gem_.
     target   the label.
+
+**Why `text_*` is empty by default.** The project used to emit three raw
+corpora here and let `pipeline.py` TF-IDF each into 24 SVD components. That was
+72 unnamed columns against roughly 150 named ones, on a panel of maybe two
+thousand rows, and no one could say what any of the 72 measured.
+
+Those corpora now go to `ingest/gemini.py` instead, which reads them and
+returns a fixed schema of named scores; `features/synthesis.py` flattens that
+into ~15 `gem_*` columns. Pass `include_raw_text=True` to restore the old
+blocks -- they are wired and tested, and #ML-6's ablation wants to compare
+against them -- but the default is off, because the comparison already ran and
+the SVD components lost.
+
+**The lexicon features stayed.** `ds2_*`, `ds3_*`, `ds5_*` and `shift_*` are
+still computed by `features/text.py` from the same documents, at essentially no
+cost since the documents are already in memory. They are the control group: if
+the `gem_*` block does not beat VADER-plus-document-counts out of sample, the
+language model is not earning its API bill and should be cut. Keeping the cheap
+baseline in the panel is what makes that question answerable rather than
+rhetorical.
 
 **Why the whole design turns on this file.** The user's spec produces one
 labelled row per ticker, and one row cannot train anything. `build_panel`
@@ -31,7 +51,7 @@ import pandas as pd
 from ..finance import returns as ret
 from ..ingest.registry import DatasetBundle, Registry, build_datasets
 from ..windows import DEFAULT_HORIZON_DAYS, WindowSpec, as_of_grid
-from . import tabular, text
+from . import synthesis, tabular, text
 
 log = logging.getLogger(__name__)
 
@@ -41,13 +61,24 @@ META_PREFIX = "meta_"
 TEXT_PREFIX = "text_"
 
 
-def build_row(bundle: DatasetBundle, sentiment_backend: str = "vader") -> dict[str, object]:
+def build_row(
+    bundle: DatasetBundle,
+    sentiment_backend: str = "vader",
+    *,
+    include_raw_text: bool = False,
+) -> dict[str, object]:
     """One DatasetBundle -> one flat row.
 
-    Every one of the five datasets contributes, and the cross-dataset features
-    (`scl_*` from DS1 x DS4, `shift_*` from DS2 vs DS3) are the ones most likely
-    to carry signal -- they encode relationships a model would otherwise have to
-    discover from raw blocks.
+    All three datasets contribute, and the cross-dataset features are the ones
+    most likely to carry signal -- they encode relationships a model would
+    otherwise have to discover from raw blocks:
+
+        scl_*, capm_*, ff_*, evt_*   DS1 x DS2 (stock against the indices)
+        gem_macro_divergence         company tone against the macro backdrop
+        shift_*                      the lexicon control's own baseline-vs-recent
+
+    `include_raw_text` restores the pre-Gemini TF-IDF corpora. Off by default;
+    see the module docstring.
     """
     spec = bundle.spec
     row: dict[str, object] = {
@@ -55,36 +86,55 @@ def build_row(bundle: DatasetBundle, sentiment_backend: str = "vader") -> dict[s
         f"{META_PREFIX}as_of": pd.Timestamp(bundle.as_of),
         f"{META_PREFIX}synthetic": ",".join(sorted(bundle.synthetic)),
         f"{META_PREFIX}n_synthetic": len(bundle.synthetic),
+        # Which grounding regime produced the brief. Carried as meta rather
+        # than as a feature because it must never reach the model, but it has
+        # to be recoverable from a saved panel: a panel built with strict
+        # grounding and one built without are not comparable, and finding that
+        # out after the fact requires the answer to be in the file.
+        f"{META_PREFIX}grounding": (
+            bundle.sentiment_brief.grounding if bundle.sentiment_brief else "none"
+        ),
     }
 
     # --- DS1: the stock's own price history ------------------------------
     row.update(tabular.price_features(bundle.prices_equity, bundle.risk_free, prefix="eq"))
 
-    # --- DS4: the indices -------------------------------------------------
+    # --- DS2: the indices and factor proxies ------------------------------
     row.update(tabular.index_features(bundle.prices_index, bundle.risk_free))
 
-    # --- DS1 x DS4: the Chapter 8 regressions -----------------------------
+    # --- DS1 x DS2: the Chapter 8-12 regressions --------------------------
     row.update(tabular.relative_features(bundle.prices_equity, bundle.prices_index, bundle.risk_free))
 
-    # --- DS2, DS3, DS5: dense text statistics -----------------------------
+    # --- DS3: the synthesised sentiment brief -----------------------------
+    # The headline change. One Gemini call over all three corpora returns ~15
+    # named scores; this replaces the 72 anonymous SVD components that used to
+    # sit here.
+    row.update(synthesis.brief_features(bundle.sentiment_brief))
+
+    # --- DS3's control group: the same corpora, scored by lexicon ---------
+    # Free (the documents are already in memory) and the only way to prove the
+    # language model beats a bag of words. If it does not, `gem_*` is an
+    # expensive way to compute `ds3_sentiment_mean`.
     row.update(text.text_stats_features(
         bundle.news_baseline, "ds2", spec.news_baseline.days, sentiment_backend))
     row.update(text.text_stats_features(
         bundle.news_recent, "ds3", spec.news_recent.days, sentiment_backend))
     row.update(text.text_stats_features(
         bundle.macro_text, "ds5", spec.macro.days, sentiment_backend))
-
-    # --- DS2 vs DS3: the shift features -----------------------------------
     row.update(text.sentiment_shift_features(
         bundle.news_baseline, bundle.news_recent,
         spec.news_baseline.days, spec.news_recent.days, sentiment_backend))
 
     # --- raw corpora, for the vectorizer inside the pipeline --------------
-    row[f"{TEXT_PREFIX}baseline"] = text.corpus_for_vectorizer(bundle.news_baseline)
-    row[f"{TEXT_PREFIX}recent"] = text.corpus_for_vectorizer(bundle.news_recent)
-    row[f"{TEXT_PREFIX}macro"] = text.corpus_for_vectorizer(bundle.macro_text)
+    # Off by default. Emitted as empty strings rather than omitted so the panel
+    # schema is stable across the flag -- a TfidfVectorizer on empty documents
+    # yields no vocabulary and AdaptiveSVD clamps, so the pipeline still runs.
+    if include_raw_text:
+        row[f"{TEXT_PREFIX}baseline"] = text.corpus_for_vectorizer(bundle.news_baseline)
+        row[f"{TEXT_PREFIX}recent"] = text.corpus_for_vectorizer(bundle.news_recent)
+        row[f"{TEXT_PREFIX}macro"] = text.corpus_for_vectorizer(bundle.macro_text)
 
-    # --- the numeric macro panel (DS5's other half) -----------------------
+    # --- the numeric macro backdrop --------------------------------------
     if not bundle.macro_panel.empty:
         panel = bundle.macro_panel.ffill()
         for col in panel.columns:
@@ -162,11 +212,12 @@ def build_panel(
     target_kind: str = "log_return",
     registry: Registry | None = None,
     sentiment_backend: str = "vader",
+    include_raw_text: bool = False,
     progress: bool = True,
 ) -> pd.DataFrame:
     """The walk-forward sweep: build the training panel.
 
-    For each symbol and each as-of date on the grid, build all five datasets as
+    For each symbol and each as-of date on the grid, build every dataset as
     they looked on that date, reduce them to a row, and label it with the
     realised forward return.
 
@@ -176,8 +227,16 @@ def build_panel(
     cold bundle. A sweep of 10 symbols over 3 years of weekly as-of dates is
     ~1,560 bundles, which is an overnight job, not a coffee break.
 
+    That sweep now also spends one Gemini call per bundle, at roughly 10k input
+    tokens each -- on the order of $5 total on flash, and $0 on a re-run since
+    the briefs are cached alongside everything else. The rate limiter in
+    `ingest/gemini.py` is the binding constraint on the free tier, not the
+    money. Run `py run.py build-panel --symbols AAPL --synthetic` first: it
+    finishes in seconds, calls nothing, and produces the same schema.
+
     It is fast on re-runs: overlapping windows hit the Parquet/JSON cache, and
-    DS5 is ticker-independent so only the first symbol at each as-of date pays
+    the macro window is ticker-independent, so only the first symbol at each
+    as-of date pays
     for the macro pull.
 
     Start small. `py run.py build-panel --symbols AAPL --synthetic` finishes in
@@ -218,7 +277,8 @@ def build_panel(
             try:
                 bundle = build_datasets(symbol, as_of, registry=registry,
                                         spec=WindowSpec.for_as_of(as_of))
-                row = build_row(bundle, sentiment_backend)
+                row = build_row(bundle, sentiment_backend,
+                                include_raw_text=include_raw_text)
                 row["target"] = compute_target(label_prices, as_of, horizon_days, target_kind)
                 rows.append(row)
             except Exception as exc:

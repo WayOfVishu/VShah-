@@ -37,6 +37,20 @@ const els = {
   statSentiment: document.getElementById("statSentiment"),
   statAttention: document.getElementById("statAttention"),
 
+  valFair: document.getElementById("valFair"),
+  valForecast: document.getElementById("valForecast"),
+  valAlpha: document.getElementById("valAlpha"),
+  valVerdict: document.getElementById("valVerdict"),
+  valNote: document.getElementById("valNote"),
+  valCaveat: document.getElementById("valCaveat"),
+
+  brief: document.getElementById("brief"),
+  briefSource: document.getElementById("briefSource"),
+  briefRationale: document.getElementById("briefRationale"),
+  briefThemes: document.getElementById("briefThemes"),
+  briefConfidence: document.getElementById("briefConfidence"),
+  statSentimentNote: document.getElementById("statSentimentNote"),
+
   allocFill: document.getElementById("allocFill"),
   allocNote: document.getElementById("allocNote"),
 
@@ -296,13 +310,103 @@ function renderPrediction(p) {
     els.statR2Note.textContent = "";
   }
 
+  // Prefer the model's read of the shift; fall back to the lexicon's when DS3
+  // could not produce one, and say which is on screen. Showing two different
+  // numbers under one label across runs would be worse than showing neither.
+  const briefShift = ctx.sentiment_brief_shift;
+  const shift = briefShift != null ? briefShift : ctx.sentiment_shift;
   els.statSentiment.textContent =
-    ctx.sentiment_shift == null ? "–" : `${ctx.sentiment_shift >= 0 ? "+" : ""}${num(ctx.sentiment_shift)}`;
+    shift == null ? "–" : `${shift >= 0 ? "+" : ""}${num(shift)}`;
+  if (els.statSentimentNote) {
+    els.statSentimentNote.textContent =
+      briefShift != null ? "recent vs prior, as the model read it" : "recent 2mo vs prior 10mo (lexicon)";
+  }
   els.statAttention.textContent =
     ctx.attention_ratio == null ? "–" : `${num(ctx.attention_ratio)}×`;
 
+  renderValuation(p.valuation);
+  renderBrief(ctx);
   renderAllocation(p.allocation);
   show(els.resultPanel);
+}
+
+// Verdict -> the class that colours it. Kept as a map rather than an if-chain
+// so an unrecognised verdict from a future API version renders neutrally
+// instead of silently picking whichever branch happened to be last.
+const VERDICT_CLASS = {
+  underpriced: "verdict-good",
+  overpriced: "verdict-bad",
+  fairly_priced: "verdict-neutral",
+  unknown: "verdict-neutral",
+};
+
+function renderValuation(v) {
+  if (!v) return;
+
+  els.valFair.textContent = pct(v.fair_return);
+  els.valForecast.textContent = pct(v.forecast_return_annual);
+  els.valAlpha.textContent = signedPct(v.alpha);
+
+  // Colour the alpha by sign, but only once it clears the band the API itself
+  // treats as noise. Painting a +0.3% alpha green would be the page telling a
+  // stronger story than the number supports.
+  els.valAlpha.classList.remove("is-positive", "is-negative");
+  if (v.verdict === "underpriced") els.valAlpha.classList.add("is-positive");
+  if (v.verdict === "overpriced") els.valAlpha.classList.add("is-negative");
+
+  const label = (v.verdict || "unknown").replace(/_/g, " ");
+  els.valVerdict.textContent = label;
+  els.valVerdict.className = `verdict ${VERDICT_CLASS[v.verdict] || "verdict-neutral"}`;
+  els.valNote.textContent = v.note || "";
+
+  // When the premium could not be estimated from index history, the alpha is
+  // built on a textbook constant rather than this market. That is a materially
+  // weaker claim and the page has to say so where the number is, not in a
+  // footnote nobody reads.
+  const defaulted = v.market_risk_premium_is_default;
+  els.valCaveat.classList.toggle("is-warning", !!defaulted);
+  if (defaulted) {
+    els.valCaveat.textContent =
+      "The market risk premium could not be estimated from index history, so " +
+      "the textbook 8% was used. This alpha is a sketch, not a valuation — it " +
+      "says as much about that assumption as about the stock.";
+  }
+}
+
+function renderBrief(ctx) {
+  const rationale = ctx.sentiment_rationale;
+  if (!rationale) {
+    hide(els.brief);
+    return;
+  }
+
+  els.briefRationale.textContent = rationale;
+
+  // "synthetic" grounding means no language model ran — the scores came from a
+  // word list. Labelling it here is the difference between a reader trusting
+  // the brief and knowing not to.
+  const grounding = ctx.sentiment_grounding;
+  const isSynthetic = grounding === "synthetic";
+  els.briefSource.textContent = isSynthetic ? "word list, not a model" : `grounding: ${grounding}`;
+  els.briefSource.classList.toggle("tag-warn", isSynthetic);
+
+  els.briefThemes.innerHTML = "";
+  for (const theme of ctx.sentiment_themes || []) {
+    const chip = document.createElement("span");
+    chip.className = "theme";
+    chip.textContent = theme;
+    els.briefThemes.appendChild(chip);
+  }
+
+  const c = ctx.sentiment_confidence;
+  els.briefConfidence.textContent =
+    c == null
+      ? ""
+      : isSynthetic
+        ? "Confidence is pinned at zero: a lexicon has no view about its own reliability."
+        : `Model's own confidence in these scores: ${pct(c, 0)}.`;
+
+  show(els.brief);
 }
 
 function renderAllocation(a) {
@@ -314,12 +418,15 @@ function renderAllocation(a) {
   els.allocNote.textContent = a.note;
 }
 
+// The retrieval windows, which is what /api/datasets reports. Three of these
+// are now inputs to DS3's synthesis rather than datasets the model sees, so
+// they are labelled by what they fetch rather than by a dataset number.
 const DATASET_LABELS = {
   prices_equity: "DS1 · Stock prices",
-  prices_index: "DS4 · Market indices",
-  news_baseline: "DS2 · News baseline",
-  news_recent: "DS3 · Recent news",
-  macro: "DS5 · Macro backdrop",
+  prices_index: "DS2 · Indices + factors",
+  news_baseline: "Retrieval · News baseline",
+  news_recent: "Retrieval · Recent news",
+  macro: "Retrieval · Macro backdrop",
 };
 
 function renderDatasets(d) {

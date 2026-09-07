@@ -61,9 +61,79 @@ def cmd_providers(args) -> int:
         ("NEWSAPI_API_KEY", bool(settings.newsapi_key)),
         ("REDDIT_CLIENT_ID/SECRET", settings.has_reddit),
         ("FRED_API_KEY", bool(settings.fred_key)),
+        ("GEMINI_API_KEY", settings.has_gemini),
     ]:
         print(f"  {label:<26} {'yes' if present else 'no'}")
+    if settings.has_gemini:
+        mode = "strict" if settings.gemini_strict_grounding else "LIGHT"
+        print(f"\nsentiment: {settings.gemini_model}, grounding {mode}")
+        if not settings.gemini_strict_grounding:
+            # Loud, because this is the setting that silently inflates a
+            # backtest. Nothing downstream can detect the resulting leakage.
+            print("  !! light grounding: the model sees tickers and dates. Fine")
+            print("     for live inference; on a historical panel it admits")
+            print("     lookahead that no leakage check can catch.")
+    else:
+        print("\nsentiment: no GEMINI_API_KEY -- DS3 falls back to a word list.")
+        print("  The pipeline runs, but the text half of the model is not a")
+        print("  language model read. Set the key before trusting any score.")
+
     print(f"\ndata dir: {settings.data_dir}")
+    return 0
+
+
+def cmd_models(args) -> int:
+    """List the Gemini models this key can actually reach.
+
+    Exists because model availability is not a constant. `gemini-2.5-flash` was
+    the default here until Google retired it for new API projects, and the
+    failure mode was a 404 on every call in a sweep -- thousands of identical
+    log lines and a panel silently built on lexicon fallbacks. Rather than
+    hard-code a name and hope, this asks.
+    """
+    from .config import get_settings
+
+    settings = get_settings()
+    if not settings.has_gemini:
+        print("no GEMINI_API_KEY set -- nothing to list.")
+        print("Get one at https://aistudio.google.com/apikey and put it in .env")
+        return 1
+
+    try:
+        from google import genai
+    except ImportError:
+        print("google-genai is not installed.")
+        print("  pip install google-genai")
+        return 1
+
+    client = genai.Client(api_key=settings.gemini_key)
+    try:
+        models = list(client.models.list())
+    except Exception as exc:
+        from .ingest.gemini import _explain
+        from datetime import date
+
+        print("could not list models:")
+        print(f"  {_explain(exc, '-', date.today(), settings.gemini_model)}")
+        return 1
+
+    usable = [m for m in models
+              if "generateContent" in (getattr(m, "supported_actions", None) or [])]
+    if not usable:
+        print("this key can reach no models that support generateContent.")
+        return 1
+
+    print(f"models available to this key ({len(usable)}):\n")
+    for m in sorted(usable, key=lambda m: m.name):
+        name = m.name.removeprefix("models/")
+        marker = "  <-- configured" if name == settings.gemini_model else ""
+        print(f"  {name}{marker}")
+
+    if not any(m.name.removeprefix("models/") == settings.gemini_model for m in usable):
+        print(f"\n!! GEMINI_MODEL is {settings.gemini_model!r}, which is not in that list.")
+        print("   Set GEMINI_MODEL in .env to one of the above. Prefer a `flash`")
+        print("   variant: the task is schema-constrained scoring, not reasoning,")
+        print("   and a sweep is thousands of calls.")
     return 0
 
 
@@ -251,8 +321,9 @@ def build_parser() -> argparse.ArgumentParser:
         return sub.add_parser(name, parents=[common], **kwargs)
 
     add("providers", help="show which provider serves each dataset").set_defaults(func=cmd_providers)
+    add("models", help="list the Gemini models this key can reach").set_defaults(func=cmd_models)
 
-    w = add("windows", help="print the five dataset windows for an as-of date")
+    w = add("windows", help="print the retrieval windows for an as-of date")
     w.add_argument("--as-of", type=_parse_date, default=None)
     w.add_argument("--horizon", type=int, default=DEFAULT_HORIZON_DAYS)
     w.set_defaults(func=cmd_windows)

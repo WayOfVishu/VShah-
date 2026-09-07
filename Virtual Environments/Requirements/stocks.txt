@@ -19,9 +19,22 @@ yfinance>=0.2.40     # DS1 + DS4 prices
 requests>=2.32       # GDELT (DS2/DS3/DS5), FRED, Yahoo symbol search
 python-dotenv>=1.0   # reads .env; optional at runtime, see config.py
 
+# --- sentiment synthesis (DS3) ---
+google-genai>=1.0          # the Gemini client. NOT `google-generativeai`, which
+                           # Google has end-of-lifed -- it still imports but gets
+                           # no fixes and prints a deprecation warning on every
+                           # call. Optional at runtime: without it (or without
+                           # GEMINI_API_KEY) the registry falls back to
+                           # SyntheticBriefProvider and records the fallback in
+                           # bundle.synthetic, so the pipeline still runs
+                           # end-to-end on a fresh clone with no key.
+
 # --- text features ---
 nltk>=3.9            # VADER sentiment. Lexicon-based, so no fitting and no
-                     # leakage risk -- see features/text.py on why that matters
+                     # leakage risk -- see features/text.py on why that matters.
+                     # Now the *control group* for the Gemini block rather than
+                     # the primary text signal: if gem_* does not beat these
+                     # out of sample, the API bill is not being earned.
 beautifulsoup4>=4.12 # only used when GDELT is run with fetch_full_text=True
 
 # --- dev ---

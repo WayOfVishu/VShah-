@@ -15,16 +15,25 @@ genuinely hard data — not to make money, and not to produce a résumé line.
 ## 1. Overview
 
 A web app where a user types a stock — name, ticker, anything — and gets a
-30-day forecast built from five datasets:
+30-day forecast built from three datasets:
 
 1. **DS1** the stock's own daily prices, 5 years (tabular)
-2. **DS2** news about it from 12 to 2 months ago (text)
-3. **DS3** news and community discussion from the last 2 months (text)
-4. **DS4** S&P 500, NASDAQ, Russell 2000, VIX, 2 years (tabular)
-5. **DS5** political and global-economic backdrop, 6 months (text + numeric)
+2. **DS2** S&P 500, NASDAQ, Russell 2000, VIX + value/growth ETFs, 2 years (tabular)
+3. **DS3** a language model's synthesis of everything written about it — company
+   news from 12 to 2 months ago, news and community discussion from the last two
+   months, and the political/economic backdrop over six months — returned as
+   ~15 named sentiment scores rather than raw text
 
-Those five go through one sklearn pipeline and out the other side as a forecast
-plus a position recommendation.
+Those three go through one sklearn pipeline and out the other side as a
+forecast, a Chapter 9 fair-value comparison, and a position recommendation.
+
+**On DS3 and the count.** This began as five datasets, three of them raw text
+that reached the model as TF-IDF blocks compressed into 72 anonymous SVD
+components. Those three windows are still *retrieved* separately — they have
+different point-in-time boundaries and must, or the panel stops being honest —
+but they are now *synthesised* into one dataset before the model sees anything.
+§5 covers the retrieval-versus-synthesis split; the short version is that GDELT
+retrieves and Gemini reads, never the reverse.
 
 The project has two halves that were deliberately separated. The **data and
 math half** — provider integration, caching, window discipline, the textbook
@@ -108,17 +117,25 @@ Consequences that shaped the rest of the codebase:
                    WindowSpec(as_of)
                         |
         +---------------+---------------+
-        |        ingest/registry        |     provider fallback:
+        |   ingest/registry  RETRIEVAL  |     provider fallback:
         |  yfinance | GDELT | FRED |    |     keyed -> keyless -> synthetic
         |  Reddit   | synthetic         |
         +---------------+---------------+
                         |
-                  DatasetBundle  (5 datasets + provenance)
+             3 text corpora, correctly dated
+                        |
+        +---------------+---------------+
+        |   ingest/gemini    SYNTHESIS  |     reads only what GDELT returned;
+        |  strict grounding, temp 0     |     search grounding NOT enabled
+        +---------------+---------------+
+                        |
+              DatasetBundle  (DS1 + DS2 + brief + provenance)
                         |
         +---------------+---------------+
         |          features/            |
-        |  tabular.py  <- finance/      |     BKM Ch 5-8 math
-        |  text.py                      |
+        |  tabular.py   <- finance/     |     BKM Ch 5-12 math
+        |  synthesis.py <- the brief    |     -> gem_* named scores
+        |  text.py                      |     -> lexicon control group
         |  assemble.py                  |
         +---------------+---------------+
                         |
@@ -140,22 +157,42 @@ one is the most expensive confusion available here, so provenance is carried in
 
 ## 6. The finance module, and what is not in it
 
-`stocks/finance/` implements the eight chapter summaries in `References/Stocks`
+`stocks/finance/` implements the twelve chapter summaries in `References/Stocks`
 (Bodie, Kane & Marcus, *Investments*, 9th Canadian Edition). Every worked
 example in those chapters is pinned as a test.
 
 The load-bearing chapter is **8, the single-index model**. Total risk splits
 into two uncorrelated pieces — systematic (`beta² σ_M²`) and firm-specific
 (`σ²(e)`) — and those two halves are driven by *different datasets in this
-project*: DS4/DS5 drive the systematic half, DS2/DS3 the firm-specific half.
+project*: DS2 drives the systematic half, DS3 the firm-specific half.
 Regressing the stock on the index and keeping the residual is what stops the
-text features from competing with the index to re-explain market moves. The
+sentiment features from competing with the index to re-explain market moves. The
 `scl_*` features encode that split directly, and `#ML-8` proposes going further
 and predicting the residual itself.
 
+**Chapter 9 is what closes the loop between the two halves of the project.**
+Chapters 5–8 are all descriptions of what a security did. The security market
+line is the first forward statement — what a stock *ought* to return given its
+beta — so the pipeline's output can be scored against it as an alpha rather than
+reported as a bare percentage. That alpha is also precisely what Chapter 8's
+`treynor_black_weights` consumes, so the model's output and the portfolio math
+finally connect. `/api/predict` returns it as a `valuation` block.
+
+**Chapters 10–12 are implemented as qualifications, and the code keeps them as
+qualifications.** Ch 10 (`ff_*`) says one beta cannot describe systematic risk
+and runs a joint factor regression instead of four univariate ones. Ch 11
+(`evt_*`) supplies the event-study machinery and, more importantly, the joint
+hypothesis problem: any alpha is equally evidence that the benchmark model is
+wrong. Ch 12 (`tech_*`) supplies a behavioural mechanism for why price patterns
+might persist *and* the data-mining warning that a large grid search over a
+small overlapping panel is exactly the procedure that manufactures false ones.
+None of the three are decoration — they are the reasons to distrust a good
+score, and they live next to the code that produces it.
+
 **Not implemented: DCF, dividend discount models, FCFE, comparable multiples.**
-The eight chapter summaries stop at index models and do not cover equity
-valuation.
+Those are BKM Ch 13 and 18. The twelve chapter summaries cover risk, return,
+portfolio theory, asset pricing and market efficiency — not equity valuation
+proper.
 
 The full textbook *is* in `References/Stocks` — but it is a page-image scan
 (1,006 JPEG-2000 images, no `ToUnicode` maps, 37 text operators in 322 MB), so
@@ -226,16 +263,25 @@ worth building once the model is worth serving, not before.
 
 ## 9. Bill of materials
 
-Free tier throughout. Nothing here costs money.
+Free tier throughout, except Gemini — metered, and roughly $5 for a full
+ten-symbol three-year sweep on `gemini-2.5-flash`. Cached, so re-runs are free.
 
 | provider | key | limit | serves |
 |---|---|---|---|
-| yfinance | none | unofficial, rate-limits when swept | DS1, DS4 |
-| GDELT DOC 2.0 | none | 250 records/query; ~1 call / 5s; indexes to 2015 | DS2, DS3, DS5 |
-| FRED | free | generous | DS5 numeric, **the risk-free rate** |
-| Reddit (PRAW) | free | no date-range search since Pushshift closed | DS3 only |
-| NewsAPI | free | 30 days back — cannot build DS2 | DS3 only |
+| yfinance | none | unofficial, rate-limits when swept | DS1, DS2 |
+| GDELT DOC 2.0 | none | 250 records/query; ~1 call / 5s; indexes to 2015 | **all DS3 retrieval** |
+| Gemini | free | low RPM on the free tier; ~10k tokens/call | **DS3 synthesis** |
+| FRED | free | generous | macro numerics, **the risk-free rate** |
+| Reddit (PRAW) | free | no date-range search since Pushshift closed | DS3, live inference only |
+| NewsAPI | free | 30 days back — cannot build the baseline window | recent window only |
 | Alpha Vantage | free | 25 requests/day | price fallback |
+
+**Reddit's row is the one to read twice.** Its search API cannot filter by date
+range at all — it returns today's top results whatever window is requested. That
+makes it genuinely useful for live inference and actively harmful for a
+historical panel row, where it would return 2026 posts against a 2023 as-of
+date. It is therefore restricted to the recent window and is the only provider
+whose *absence* costs nothing structural.
 
 **GDELT is the keystone.** DS2 needs articles from 12 to 2 months ago, and
 almost every consumer news API stops at 7–30 days. GDELT is the only free source

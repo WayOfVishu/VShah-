@@ -74,13 +74,41 @@ class TestBundle:
 class TestBuildRow:
     def test_produces_features_from_every_dataset(self, registry):
         row = build_row(build_datasets("TEST", END, registry=registry))
-        for prefix in ("eq_", "idx_", "scl_", "ds2_", "ds3_", "ds5_", "shift_", "macro_"):
+        for prefix in ("eq_", "idx_", "scl_", "capm_", "evt_", "tech_rs_",
+                       "gem_", "ds2_", "ds3_", "ds5_", "shift_", "macro_"):
             assert any(k.startswith(prefix) for k in row), f"no {prefix}* features"
 
-    def test_emits_the_three_raw_corpora(self, registry):
+    def test_raw_corpora_are_off_by_default(self, registry):
+        """The TF-IDF blocks are opt-in now; DS3 arrives as `gem_*` scores.
+
+        Guarding the default rather than the flag, because the failure mode
+        that matters is a panel silently regaining 72 SVD columns -- which
+        costs an overnight sweep to discover and nothing to prevent.
+        """
         row = build_row(build_datasets("TEST", END, registry=registry))
+        assert not any(k.startswith(TEXT_PREFIX) for k in row)
+
+    def test_raw_corpora_come_back_when_asked_for(self, registry):
+        """`include_raw_text=True` restores them, for #ML-6's ablation."""
+        row = build_row(build_datasets("TEST", END, registry=registry),
+                        include_raw_text=True)
         for name in ("baseline", "recent", "macro"):
             assert isinstance(row[f"{TEXT_PREFIX}{name}"], str)
+
+    def test_emits_the_synthesised_sentiment_block(self, registry):
+        """DS3 must produce named scores, not opaque components."""
+        row = build_row(build_datasets("TEST", END, registry=registry))
+        for name in ("gem_recent_sentiment", "gem_sentiment_shift",
+                     "gem_attention_level", "gem_macro_divergence",
+                     "gem_n_missing", "gem_is_synthetic"):
+            assert name in row, f"missing {name}"
+
+    def test_grounding_mode_is_recorded_as_meta_not_as_a_feature(self, registry):
+        """A panel built with strict grounding and one without are not
+        comparable, so which regime produced a row has to survive to disk --
+        but it must never reach the model."""
+        row = build_row(build_datasets("TEST", END, registry=registry))
+        assert row[f"{META_PREFIX}grounding"] == "synthetic"
 
     def test_chapter_8_regression_features_are_present_and_sane(self, registry):
         row = build_row(build_datasets("TEST", END, registry=registry))
@@ -137,7 +165,9 @@ class TestPipeline:
         assert not any(c.startswith(META_PREFIX) for c in numeric + text)
         assert "target" not in numeric
         assert all(c.startswith(TEXT_PREFIX) for c in text)
-        assert len(text) == 3
+        # Zero by default: the raw corpora were replaced by the `gem_*` block.
+        # `build_row(include_raw_text=True)` puts three back.
+        assert len(text) == 0
 
     def test_fits_and_predicts(self, panel):
         pipe = build_pipeline(panel)

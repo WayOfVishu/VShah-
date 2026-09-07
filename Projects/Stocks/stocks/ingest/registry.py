@@ -1,8 +1,32 @@
 """Provider selection and the one function the rest of the project calls.
 
-`build_datasets(symbol, as_of)` returns all five datasets for one as-of date.
+`build_datasets(symbol, as_of)` returns everything needed for one as-of date.
 That is the entire public surface of the ingest layer -- features, pipeline,
 CLI, and API all go through it, and none of them know which vendor answered.
+
+**Three datasets now reach the model, not five.** The retrieval layer still
+pulls the same six things it always did; what changed is that three of them
+stopped being model inputs and became inputs to a fourth step.
+
+    DS1  stock prices                 yfinance          -> tabular features
+    DS2  index and factor prices      yfinance          -> tabular features
+    DS3  synthesised sentiment        Gemini            -> ~15 numeric features
+           ^ built from: company news 12-2mo (GDELT)
+                         company news 0-2mo (GDELT) + community (Reddit)
+                         macro/political news (GDELT)
+
+The three news corpora used to arrive at `pipeline.py` as raw strings and get
+TF-IDF'd into 72 unnamed SVD components. They now go to `ingest/gemini.py`,
+which returns a fixed schema of named scores. The corpora are still carried on
+the bundle -- `features/text.py` computes cheap lexicon baselines from them so
+the ablation in `docs/TODO.md` can prove the language model earns its cost, and
+a brief that cannot be traced to its sources is not auditable.
+
+**GDELT did not become optional.** It is the only free source that can query a
+historical window (`startdatetime`/`enddatetime`) and therefore the only reason
+a walk-forward panel can be built at all. Gemini synthesises; it never
+retrieves, and Google Search grounding is deliberately not enabled. See
+`ingest/gemini.py` for why enabling it would put the label inside the features.
 
 Selection is a preference-ordered fallback per slot. For each dataset the
 registry walks its candidate list, takes the first provider whose `available()`
@@ -27,9 +51,18 @@ from typing import Any
 
 import pandas as pd
 
-from ..config import DEFAULT_INDEX_TICKERS, Settings, get_settings
+from ..config import (
+    DEFAULT_FACTOR_TICKERS,
+    DEFAULT_INDEX_TICKERS,
+    GEMINI_MAX_BASELINE_DOCS,
+    GEMINI_MAX_MACRO_DOCS,
+    GEMINI_MAX_RECENT_DOCS,
+    Settings,
+    get_settings,
+)
 from ..windows import Dataset, WindowSpec
 from .base import DiskCache, Document, ProviderError
+from .gemini import GeminiProvider, SentimentBrief, SyntheticBriefProvider
 from .macro import (
     FredProvider,
     MacroTextProvider,
@@ -67,12 +100,30 @@ class DatasetBundle:
     macro_panel: pd.DataFrame
     risk_free: pd.Series
 
+    # DS3, the synthesised brief. The three text corpora above are now inputs
+    # to this rather than model inputs in their own right -- they are still
+    # carried on the bundle because `features/text.py` computes cheap VADER
+    # baselines from them, and because a brief you cannot trace back to its
+    # source documents is not auditable.
+    sentiment_brief: SentimentBrief | None = None
+
     sources: dict[str, str] = field(default_factory=dict)
     synthetic: set[str] = field(default_factory=set)
 
     @property
     def is_fully_synthetic(self) -> bool:
         return len(self.synthetic) == len(Dataset)
+
+    @property
+    def brief_is_real(self) -> bool:
+        """True only if a language model actually produced the brief.
+
+        Distinct from `has_synthetic`, which is true if *any* slot fell back.
+        Prices can be real while the brief is not, and that combination scores
+        perfectly well and means nothing -- DS3 carries most of the text signal
+        now, so this is the flag `evaluate.py` should refuse to report on.
+        """
+        return self.sentiment_brief is not None and not self.sentiment_brief.is_synthetic
 
     @property
     def has_synthetic(self) -> bool:
@@ -87,6 +138,10 @@ class DatasetBundle:
             "news_baseline": f"{len(self.news_baseline):>5} docs",
             "news_recent": f"{len(self.news_recent):>5} docs",
             "macro": f"{len(self.macro_text):>5} docs + {self.macro_panel.shape[1]} series",
+            "sentiment": (
+                f"brief via {self.sentiment_brief.model}"
+                if self.sentiment_brief is not None else "   -- no brief --"
+            ),
         }
         for key, count in counts.items():
             flag = "  [SYNTHETIC]" if key in self.synthetic else ""
@@ -140,6 +195,27 @@ class Registry:
         )
         self.community = reddit if (reddit.available() and not force_synthetic) else None
 
+        # DS3's synthesiser. Not routed through `_pick`, because its fallback
+        # is not "a different vendor for the same data" -- SyntheticBriefProvider
+        # is a lexicon, not a language model, and the difference is large enough
+        # that it must show up in `bundle.synthetic` rather than being resolved
+        # silently at construction.
+        self._synthetic_brief = SyntheticBriefProvider(self.cache)
+        gemini = GeminiProvider(
+            self.settings.gemini_key, self.settings.gemini_model, self.cache,
+            strict_grounding=self.settings.gemini_strict_grounding,
+        )
+        self.sentiment = (
+            gemini if (gemini.available() and not self.force_synthetic)
+            else self._synthetic_brief
+        )
+        if self.sentiment is gemini and not self.settings.gemini_strict_grounding:
+            log.warning(
+                "GEMINI_STRICT_GROUNDING is off -- the model sees tickers and publication "
+                "dates. Fine for live inference; for a historical panel this admits "
+                "lookahead bias that no leakage check downstream can detect."
+            )
+
         self.macro_text = self._pick([MacroTextProvider(cache=self.cache)], self._synthetic_macro)
         self.macro_numeric = self._pick([FredProvider(self.settings.fred_key, self.cache)],
                                         self._synthetic_macro)
@@ -157,11 +233,12 @@ class Registry:
     def describe(self) -> str:
         rows = ["resolved providers:"]
         for slot, provider in [
-            ("prices (DS1, DS4)", self.prices),
-            ("news (DS2, DS3)", self.news),
-            ("community (DS3)", self.community),
-            ("macro text (DS5)", self.macro_text),
-            ("macro numeric (DS5)", self.macro_numeric),
+            ("prices (DS1, DS2)", self.prices),
+            ("news retrieval", self.news),
+            ("community retrieval", self.community),
+            ("macro text retrieval", self.macro_text),
+            ("macro numeric", self.macro_numeric),
+            ("sentiment (DS3)", self.sentiment),
         ]:
             name = provider.name if provider is not None else "-- none (optional) --"
             flag = "  [SYNTHETIC]" if name == "synthetic" else ""
@@ -219,6 +296,7 @@ def build_datasets(
     registry: Registry | None = None,
     spec: WindowSpec | None = None,
     index_tickers: tuple[str, ...] = DEFAULT_INDEX_TICKERS,
+    factor_tickers: tuple[str, ...] | None = None,
     news_limit: int = 500,
 ) -> DatasetBundle:
     """Build all five datasets for one symbol at one as-of date.
@@ -244,7 +322,14 @@ def build_datasets(
     equity = registry._fetch_prices(symbol, spec.prices_equity, "prices_equity", sources, synthetic)
 
     indices: dict[str, pd.DataFrame] = {}
-    for ticker in index_tickers:
+    # Factor proxy tickers (Chapter 10's HML pair) ride along in the same dict.
+    # They are priced series fetched over the same window, so keeping them
+    # separate would mean duplicating the fetch-and-fallback block for no gain;
+    # `features/tabular.py` selects them back out by name.
+    if factor_tickers is None:
+        factor_tickers = () if registry.settings.disable_factors else DEFAULT_FACTOR_TICKERS
+
+    for ticker in tuple(index_tickers) + tuple(factor_tickers):
         try:
             indices[ticker] = registry._fetch_prices(
                 ticker, spec.prices_index, "prices_index", sources, synthetic
@@ -279,6 +364,36 @@ def build_datasets(
         macro_panel = registry._synthetic_macro.fetch_panel(spec.macro)
         risk_free = constant_risk_free(rf_window)
 
+    # --- DS3: synthesise the three corpora into one brief -----------------
+    #
+    # Runs last, and deliberately so: it consumes the documents the three
+    # fetches above produced, so a partial failure upstream degrades the brief
+    # rather than aborting it. A brief over a thin corpus is a legitimate
+    # observation -- the model is instructed to return nulls and a low
+    # confidence -- whereas no brief at all is a hole in the panel.
+    brief = None
+    try:
+        brief = registry.sentiment.fetch_brief(
+            symbol, spec.as_of,
+            _sample(baseline, GEMINI_MAX_BASELINE_DOCS),
+            _sample(recent, GEMINI_MAX_RECENT_DOCS),
+            _sample(macro_docs, GEMINI_MAX_MACRO_DOCS),
+            spec.news_baseline,
+        )
+        sources["sentiment"] = registry.sentiment.name
+        if getattr(brief, "is_synthetic", False):
+            synthetic.add("sentiment")
+    except Exception as exc:
+        log.warning("sentiment synthesis failed for %s (%s); using the lexicon fallback",
+                    symbol, exc)
+        try:
+            brief = registry._synthetic_brief.fetch_brief(
+                symbol, spec.as_of, baseline, recent, macro_docs, spec.news_baseline)
+        except Exception as inner:
+            log.warning("lexicon fallback also failed (%s); brief will be null", inner)
+        sources["sentiment"] = "synthetic (fallback)"
+        synthetic.add("sentiment")
+
     return DatasetBundle(
         symbol=symbol,
         as_of=spec.as_of,
@@ -290,6 +405,25 @@ def build_datasets(
         macro_text=macro_docs,
         macro_panel=macro_panel,
         risk_free=risk_free,
+        sentiment_brief=brief,
         sources=sources,
         synthetic=synthetic,
     )
+
+
+def _sample(docs: list[Document], limit: int) -> list[Document]:
+    """Cap a corpus at `limit` documents, evenly across the window.
+
+    Truncating to the first N would turn a twelve-month baseline into its first
+    six weeks, which is the opposite of what the baseline window is for. Even
+    strided sampling keeps the whole span represented at lower density, so the
+    EARLIER/LATER comparison the prompt asks for stays meaningful.
+
+    Documents are sorted by date before striding because provider order is not
+    chronological -- GDELT returns by relevance within each chunk.
+    """
+    if len(docs) <= limit:
+        return list(docs)
+    ordered = sorted(docs, key=lambda d: d.published)
+    step = len(ordered) / limit
+    return [ordered[int(i * step)] for i in range(limit)]

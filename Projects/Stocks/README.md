@@ -1,8 +1,8 @@
 # Stocks
 
-A 30-day equity forecast built from five datasets: the stock's own price
-history, the news written about it, the community talking about it, the indices
-it moves with, and the macro backdrop it sits in.
+A 30-day equity forecast built from three datasets: the stock's own price
+history, the indices it moves with, and a language model's synthesis of
+everything written about it — news, community chatter, and the macro backdrop.
 
 Two halves. The **APIs and the math** are built. The **machine learning** is
 scaffolded and left open on purpose — that is the part worth doing yourself.
@@ -18,7 +18,7 @@ about a minute. If it prints an evaluation table, the plumbing works.
 
 ---
 
-## The five datasets
+## The three datasets
 
 Everything is defined relative to an **as-of date**, never "today". That one
 decision is what makes the project trainable rather than a single prediction —
@@ -26,9 +26,10 @@ see [The one design decision worth knowing](#the-one-design-decision-worth-knowi
 
 ```
 |------------------------------ DS1 . prices, equity, 5y ----------------|
-|             |----------------- DS4 . prices, index, 2y ---------------|
-|                             |----- DS5 . macro text, 6m --------------|
-|                    |-- DS2 . news baseline, 12m->2m --||- DS3 . 2m ---|
+|             |----------------- DS2 . prices, index, 2y ---------------|
+|                             |----- macro text, 6m --------------------|
+|                    |--- news baseline, 12m->2m ------||- recent, 2m --|
+                             \________________ DS3 ________________/
 -------------------------------------------------------------------------> t
 -5y           -2y   -12m                               -2m           as_of
 ```
@@ -36,21 +37,43 @@ see [The one design decision worth knowing](#the-one-design-decision-worth-knowi
 | | dataset | shape | window | source |
 |---|---|---|---|---|
 | DS1 | the stock's prices | tabular | 5 years | yfinance |
-| DS2 | news baseline | text | 12 → 2 months ago | GDELT |
-| DS3 | recent news + community | text | last 2 months | GDELT + Reddit |
-| DS4 | S&P 500, NASDAQ, Russell, VIX | tabular | 2 years | yfinance |
-| DS5 | political / economic backdrop | text + numeric | 6 months | GDELT + FRED |
+| DS2 | S&P 500, NASDAQ, Russell, VIX + value/growth ETFs | tabular | 2 years | yfinance |
+| DS3 | **synthesised sentiment** | ~15 named scores | 12 months | Gemini, over GDELT + Reddit |
 
-DS2 and DS3 partition the one-year news pull at the two-month mark. Splitting
-them is the point: DS2 is the narrative a stock has carried for most of a year,
-DS3 is what changed recently, and the **difference** between them is where the
-signal lives. A stock with steadily negative coverage is priced for it; a stock
-whose coverage turned negative six weeks ago is not. `shift_*` features compute
-that comparison explicitly.
+**DS3 is a synthesis, not a corpus.** Three text windows are retrieved — company
+news from 12→2 months ago, company news and community posts from the last two
+months, and political/economic news over six months — and handed to Gemini in a
+single call. It returns a fixed schema: how positive the coverage is in each
+window, how much it moved, whether the story itself changed, how much attention
+the name is getting, how divided the coverage is, and how confident it is in any
+of that.
+
+That replaces what used to be three raw TF-IDF blocks crushed into 72 unnamed
+SVD components. Roughly fifteen dense, interpretable columns instead — on a
+panel of a couple of thousand rows, that is the difference between features a
+model can use and features it can only overfit.
+
+The earlier/later split survives the collapse, because it was always the most
+valuable thing here: a stock with steadily negative coverage is priced for it; a
+stock whose coverage turned negative six weeks ago is not. Both windows go into
+the same call, labelled but undated, and the model scores the change directly.
+
+**Gemini synthesises. It does not retrieve.** GDELT is what makes a historical
+panel possible at all — it is the only free source that can query a *dated*
+window (`startdatetime`/`enddatetime`) and return what was published then and
+nothing since. Google Search grounding is deliberately not enabled: grounded
+search returns *today's* index, so scoring a 2023 as-of date would hand the
+model articles written after the outcome it is being asked to predict.
+
+Even reading correctly-dated documents, the model recognises them, so strict
+grounding redacts the ticker and inferred company names, strips dates, shuffles
+document order, and instructs the model to assume no outside knowledge. It is on
+by default. `docs/TODO.md` #ML-0b explains how to measure what it costs.
 
 **Nothing is required to run this.** Every provider slot falls back — keyed
-provider → keyless provider → offline synthetic. `py run.py providers` prints
-which one answered.
+provider → keyless provider → offline synthetic. Without `GEMINI_API_KEY`, DS3
+is filled from a word list instead and every layer says so. `py run.py providers`
+prints which one answered.
 
 ---
 
@@ -62,11 +85,11 @@ Read literally, the spec produces exactly one labelled row per ticker: pull five
 years of prices and a year of news, predict the next 30 days. You cannot fit a
 model to one row.
 
-So `as_of` is a parameter, and `build_panel` slides the whole five-window
-arrangement backwards through history. Pick a date in 2022, build all five
-datasets **as they would have looked on that date**, label the row with what the
-stock actually did over the next 30 days, step forward a week, repeat. Across a
-few tickers and a few years that is thousands of rows.
+So `as_of` is a parameter, and `build_panel` slides the whole window arrangement
+backwards through history. Pick a date in 2022, build every dataset **as it
+would have looked on that date**, label the row with what the stock actually did
+over the next 30 days, step forward a week, repeat. Across a few tickers and a
+few years that is thousands of rows.
 
 ```python
 from stocks import build_panel
@@ -86,17 +109,17 @@ brilliant in backtests and lose money live.
 ```
 run.py                  entry point — py run.py <command>
 stocks/
-  windows.py            the five-window spec. Read this first.
+  windows.py            the window spec and the leakage rule. Read this first.
   config.py             environment settings
   resolve.py            "apple" -> AAPL
-  ingest/               the five datasets behind one provider-agnostic function
-  finance/              Bodie/Kane/Marcus Ch 1-8 math (see below)
+  ingest/               retrieval + synthesis behind one provider-agnostic call
+  finance/              Bodie/Kane/Marcus Ch 1-12 math (see below)
   features/             datasets -> a modelling table
   pipeline.py           the sklearn pipeline  <-- THIS IS YOURS
   evaluate.py           purged walk-forward validation, honest metrics
 backend/app/            FastAPI: /api/resolve, /api/datasets, /api/predict
 frontend/               the web app — 3 files, no build step
-tests/                  144 tests, offline
+tests/                  220 tests, offline
 docs/                   charter, TODO list, formula reference, API terms
 ```
 
@@ -114,41 +137,69 @@ py run.py serve --synthetic  same, on generated data — no network, no keys
 
 ## The finance module
 
-`stocks/finance/` implements the math from the eight chapter summaries in
+`stocks/finance/` implements the math from the twelve chapter summaries in
 `References/Stocks`, and every worked example in the textbook is pinned as a
 test in `tests/test_finance.py`. If a refactor breaks one of the book's numbers,
 that fails.
 
 ```
-returns.py      Ch 5   holding-period return, annualization, Fisher, geometric mean
-risk.py         Ch 5-6 volatility, Sharpe, VaR, drawdown, skew, kurtosis
-portfolio.py    Ch 6-7 utility, capital allocation y*, two-asset, Markowitz
-index_model.py  Ch 8   the SCL regression: alpha, beta, R-squared, residual risk
+returns.py       Ch 5    holding-period return, annualization, Fisher, geometric mean
+risk.py          Ch 5-6  volatility, Sharpe, VaR, drawdown, skew, kurtosis
+portfolio.py     Ch 6-7  utility, capital allocation y*, two-asset, Markowitz
+index_model.py   Ch 8    the SCL regression: alpha, beta, R-squared, residual risk
+capm.py          Ch 9    the SML, forward alpha, zero-beta CAPM, hurdle rates
+multifactor.py   Ch 10   joint factor regressions, APT arbitrage, SMB/HML proxies
+event_study.py   Ch 11   abnormal returns, CAR, momentum and reversal
+technical.py     Ch 12   MA crossovers, relative strength, trin, parity
 ```
 
-**Chapter 8 is the one that earns its keep here.** It says total risk splits
-cleanly into two uncorrelated pieces:
+**Chapter 8 says where the signal can live.** Total risk splits cleanly into two
+uncorrelated pieces:
 
 ```
 sigma_i^2  =  beta_i^2 * sigma_M^2   +   sigma^2(e_i)
  total          systematic               firm-specific
 ```
 
-Those two halves are driven by *different datasets*. Systematic risk is what DS4
-and DS5 speak to; firm-specific risk is what DS2 and DS3 speak to. Regressing the
-stock on the index and keeping the residual separates the two, so the text
-features are asked to explain company-specific moves instead of competing with
-the index to re-explain market moves. The `scl_*` features are the most valuable
-in the table for exactly that reason — `scl_gspc_firm_specific_share` tells the
-model how much room the news datasets even have.
+The two halves are driven by *different datasets*. Systematic risk is what DS2
+(the indices) speaks to; firm-specific risk is what DS3 (the sentiment
+synthesis) speaks to. Regressing the stock on the index and keeping the residual
+separates them, so the sentiment features are asked to explain company-specific
+moves instead of competing with the index to re-explain market moves.
+`scl_gspc_firm_specific_share` tells the model how much room DS3 even has.
+
+**Chapter 9 is what makes the forecast mean something.** Chapters 5–8 all
+describe what a stock *did*. The security market line is the first statement
+about what a stock *ought* to return given its beta, so a forecast can finally be
+scored rather than just reported:
+
+```
+alpha = forecast - [ r_f + beta * (E(r_M) - r_f) ]
+```
+
+`/api/predict` returns this as a `valuation` block. "+2.3% over 30 days" is not
+judgeable on its own — a beta-1.4 name is *owed* around 9.8% a year, so
+forecasting less than that for it is a bearish call wearing a bullish sign.
+
+**Chapters 10–12 each qualify that, and the code keeps the qualifications.**
+Ch 10 says one beta is not enough (hence the joint `ff_*` regression against
+market/SMB/HML proxies). Ch 11 says any alpha you find is equally evidence your
+asset-pricing model is wrong — the joint hypothesis problem — which is why the
+verdict calls anything inside ±1% "fairly priced". Ch 12 supplies a behavioural
+*mechanism* for why price patterns might persist, and in the same breath warns
+that testing enough patterns against history will always turn some up by chance.
+A `GridSearchCV` over hundreds of combinations on a couple of thousand
+overlapping rows is exactly that machine, which is why the purged walk-forward
+split matters more than any indicator in the table.
 
 What is deliberately **not** here: DCF, dividend discount models, FCFE,
-multiples. The eight chapter summaries cover risk, return, portfolio theory and
-index models — not equity valuation proper.
+multiples. Those are BKM Ch 13 and 18, and the twelve chapter summaries cover
+risk, return, portfolio theory, asset pricing and market efficiency — not
+equity valuation proper.
 
 `References/Stocks/Bodie-Kane-Marcus Investments Full Textbook.pdf` does contain
-the valuation chapter, but it is a **page-image scan** — 1,006 JPEG-2000 images,
-no text layer — so it cannot be extracted and checked against the way the eight
+the valuation chapters, but it is a **page-image scan** — 1,006 JPEG-2000
+images, no text layer — so it cannot be extracted and checked the way the
 summaries were. Everything in `finance/` is verified against a machine-readable
 source and pinned to the book's own worked examples; adding formulas that could
 not be checked the same way would quietly lower the bar for the whole module.

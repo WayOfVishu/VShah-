@@ -2,7 +2,7 @@
 
 Two provider shapes, one for each kind of dataset:
 
-    PriceProvider  -> a DataFrame indexed by date  (DS1, DS4)
+    PriceProvider  -> a DataFrame indexed by date  (DS1, DS2)
     TextProvider   -> a list of Document           (DS2, DS3, DS5)
 
 Everything downstream is written against these two protocols and never against

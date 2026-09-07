@@ -51,7 +51,8 @@ def test_cli_parser_builds_and_every_command_is_wired():
 
     commands = set(subparsers[0].choices)
     assert commands == {
-        "providers", "windows", "resolve", "fetch",
+        "providers",
+        "models", "windows", "resolve", "fetch",
         "build-panel", "train", "demo", "serve",
     }
 

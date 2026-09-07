@@ -15,12 +15,12 @@ diversified away. Firm-specific risk is everything else, and it averages out in
 a large portfolio.
 
 Why that decomposition earns its place in a forecasting pipeline: the two
-halves are driven by *different datasets*. Systematic risk is what DS4 (the
-index) and DS5 (macro news) speak to. Firm-specific risk is what DS2 and DS3
-(stock-specific news and community sentiment) speak to. Regressing the stock on
-the index and keeping the residual is what separates the two signals, so the
-text features are asked to explain firm-specific moves rather than competing
-with the index to re-explain market moves the index already accounts for.
+halves are driven by *different datasets*. Systematic risk is what DS2 (the
+indices) speaks to. Firm-specific risk is what DS3 (the synthesised sentiment
+brief) speaks to. Regressing the stock on the index and keeping the residual is
+what separates the two signals, so the sentiment features are asked to explain
+firm-specific moves rather than competing with the index to re-explain market
+moves the index already accounts for.
 
 `fit_scl` is therefore not decoration -- `features/tabular.py` calls it, and
 `residual_series` produces the cleanest single target this project has.
@@ -203,7 +203,7 @@ def rolling_beta(
 
     The *direction* of this series is often the informative part: a beta that
     has been climbing means the name is becoming more macro-sensitive, which
-    shifts predictive weight from DS2/DS3 toward DS4/DS5.
+    shifts predictive weight from DS3 (sentiment) toward DS2 (the indices).
     """
     joined = pd.concat(
         {"stock": stock_excess, "market": market_excess}, axis=1, join="inner"

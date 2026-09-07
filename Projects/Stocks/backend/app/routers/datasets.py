@@ -1,4 +1,4 @@
-"""GET /api/datasets/{symbol} -- the five datasets, summarised.
+"""GET /api/datasets/{symbol} -- the retrieval windows, summarised.
 
 Returns what was gathered and where it came from, not the data itself. A year
 of article text is megabytes; the app wants counts, date ranges, sentiment
