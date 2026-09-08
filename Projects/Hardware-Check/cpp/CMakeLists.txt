@@ -77,3 +77,56 @@ target_link_libraries(sysdiag_core PUBLIC nlohmann_json::nlohmann_json)
 # --- sysdiag_engine: the CLI binary netdiag.py invokes as a subprocess ---
 add_executable(sysdiag_engine src/main.cpp)
 target_link_libraries(sysdiag_engine PRIVATE sysdiag_core)
+
+# --- tests: GoogleTest via FetchContent (docs/TODO.md #MEM-T1) ---------------
+# Written out in full for the same reason the rest of this file is: CMake and
+# test-harness plumbing are not learning objectives (project-charter.md Section
+# 2 lists neither), and spending the first session of Phase 1 fighting
+# FetchContent instead of writing memory_sandbox.cpp would be the wrong trade.
+# The *tests themselves* are the exercise — see cpp/tests/, where every body is
+# empty on purpose.
+#
+# Off by default so a plain `cmake -S cpp -B cpp/build` stays fast and needs no
+# network. Turn it on while working through #MEM-T1:
+#
+#   cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+#   cmake --build cpp/build
+#   ctest --test-dir cpp/build --output-on-failure
+#
+# ENABLE_ASAN composes with this, and you will want both on for most of #MEM-T1
+# — the sanitizer is what turns "the demo returned a struct" into "the demo
+# genuinely misbehaved". Note that ASan applies to the test binary too, which is
+# the whole subject of test_memory_sandbox.cpp's design question #1.
+option(BUILD_TESTING "Build the GoogleTest suite in cpp/tests/" OFF)
+
+if(BUILD_TESTING)
+  # v1.14.0 pinned for the same reason nlohmann/json is: a moving dependency is
+  # its own kind of bug. GTest and GMock both come from this one declaration.
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+  )
+  # Keeps GoogleTest from overriding this project's compiler/linker settings —
+  # harmless on Linux, but it is the documented incantation and costs nothing.
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+
+  enable_testing()
+
+  add_executable(sysdiag_tests
+    tests/test_memory_sandbox.cpp
+    tests/test_system_info.cpp
+  )
+  # Links the same static library sysdiag_engine does, which is exactly why
+  # sysdiag_core was split out of main.cpp in the first place (see the comment
+  # above add_library).
+  target_link_libraries(sysdiag_tests PRIVATE sysdiag_core GTest::gtest_main)
+
+  include(GoogleTest)
+  # gtest_discover_tests registers each TEST() with ctest individually rather
+  # than as one opaque blob, so a single crashing death test doesn't take the
+  # whole suite's result down with it. That matters more here than in a normal
+  # project — half these tests are *about* processes dying.
+  gtest_discover_tests(sysdiag_tests)
+endif()

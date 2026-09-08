@@ -20,14 +20,74 @@ each phase; the ordering is by information gained per hour, not by difficulty.
 | purged walk-forward evaluation | **done** |
 | FastAPI backend | **done** — `/predict` serves a baseline until a model exists |
 | **the model** | **yours** |
+| **experiment log** | **yours** — nothing persists results today, see #ML-LOG |
 | frontend | not started — see charter §8 |
 
 ---
 
+## Phase 0 — somewhere to put the answers
+
+Do this first. It is thirty minutes and it is the difference between this
+project having findings and having anecdotes.
+
+- [ ] **#ML-LOG · An experiment log.** `evaluate.py` computes scores and
+      returns them. Nothing persists — there is no `to_csv`, no `to_json`, no
+      write path anywhere in `stocks/`, and `data/processed/` holds a single
+      `.gitkeep`. Every number in Phase 1 below is a *comparison*, and right
+      now every one of them scrolls off your terminal and is gone.
+
+      That matters more here than it would in most projects, because the
+      headline results of this one are negative results. "Ridge did not beat
+      predict-zero" and "Gemini did not beat the lexicon" are the findings —
+      #ML-6 says so outright: *"that is a finding, not a failure. Report it
+      either way."* A finding you cannot produce on demand three weeks later is
+      not a finding. This is also the artifact that answers "what did your
+      pipeline actually show?" in a way that 13,664 lines of code cannot.
+
+      **The schema question — decide this before writing the writer.** What has
+      to be in one row for a future you to trust it, and to compare it against a
+      row logged a month later? Some of it is obvious (the metric, the model
+      name, the date). The rest is the exercise, and the test is: *if these two
+      rows disagree, can I tell whether the model changed or the data did?*
+      Things worth arguing about:
+        - the **window spec** the panel was built from — `windows.py` exists
+          precisely because "which data existed as of when" is the whole game,
+          and two scores from different as-of dates are not comparable
+        - the **feature set** — numeric-only / text-only / both (#ML-6 turns
+          this into the primary key of the ablation, so it cannot be an
+          afterthought)
+        - `GEMINI_MODEL` **and** `GEMINI_STRICT_GROUNDING` — the operational
+          notes below already warn that a pinned model can be retired and that
+          mixing two models' scores in one panel is a silent corruption.
+          A row that does not record which model scored its briefs cannot be
+          compared against one from before a bump.
+        - the **random seed**, and whether you set one at all. If you did not,
+          two identical rows differing by 0.01 R² mean nothing, and you will
+          not know that when you look back.
+        - **n** — how many rows the panel had. An R² from 40 observations and
+          one from 400 are not the same claim.
+
+      Where it lives is a smaller decision than what it contains: append-only
+      CSV or JSONL under `data/processed/`, or a markdown table in
+      `docs/RESULTS.md` you write by hand. Append-only beats a file you rewrite
+      — the point is to accumulate. Whatever you choose, `.gitignore` currently
+      ignores `data/`, so decide deliberately whether the log is an artifact
+      that gets committed (it should be; it is the output of the project) or
+      one that stays local.
+
+- [ ] **#ML-LOG-b · The canary goes in the log too.** The leakage canary in
+      Phase 1 is a pass/fail you will run many times across many code changes.
+      Logging its result each time turns it from a spot check into a
+      regression trace — and if it ever starts passing suspiciously well, the
+      log tells you *which change* preceded that, which is the only cheap way
+      to find a leak you introduced weeks ago.
+
 ## Phase 1 — before you model anything
 
 The point of this phase is to find out whether the project's premise holds
-before spending time tuning. All three are cheap.
+before spending time tuning. All three are cheap. **Log every result**
+(#ML-LOG) — these four experiments are the ones most worth being able to
+reproduce and quote.
 
 - [ ] **#ML-3 · The zero baseline.** Add "predict 0" and "predict the trailing
       21-day return" to `baseline_models()`. If none of Ridge / RF / GBM beat

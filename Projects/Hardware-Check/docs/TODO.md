@@ -22,6 +22,22 @@ Check items off as you go (`- [x]`).
   not a "middle of the pack" TODO in difficulty, it's the whole reason the
   project exists. Run every demo under ASan AND Valgrind as you go (see
   README's "Memory-safety verification" section), not just once at the end.
+- [ ] **#MEM-T1** `cpp/tests/test_memory_sandbox.cpp` and
+  `cpp/tests/test_system_info.cpp` — the assertions. The GoogleTest target is
+  wired in `cpp/CMakeLists.txt` (behind `-DBUILD_TESTING=ON`) and both files
+  exist with every test body empty: the harness is plumbing, the assertions are
+  the exercise. Do these *alongside* #SYS-1/#MEM-1, not after — a test written
+  afterwards tends to assert whatever the code already happens to do.
+  **This is the TODO that turns Section 13 from a claim into evidence.** The
+  acceptance criteria require the three buggy demos be "demonstrably *not*
+  clean" before the Phase 2 refactor, and demonstrating that is genuinely hard:
+  two of the four demos are undefined behavior, so the test binary may not
+  survive its own subject. Read the header comment in
+  `test_memory_sandbox.cpp` before starting — "how do you write a *passing*
+  test that proves a demo is broken?" is the whole exercise, and gtest **death
+  tests** are the tool worth discovering. `test_system_info.cpp` poses the
+  opposite question (what do you assert when the expected value changes every
+  run?) and is the easier of the two — start there if #MEM-1 is still in flight.
 
 ## Phase 2 — Refactor (target: week 5)
 
@@ -61,6 +77,20 @@ Check items off as you go (`- [x]`).
   Retry/backoff on rate limits. You will hit 429s during real testing on
   the free tier — this isn't a hypothetical.
 - [ ] **#AI-3** `python/ai_analyzer/response_parser.py` — `parse_analysis()`.
+- [ ] **#AI-T1** The assertions in `python/tests/test_prompt_builder.py`,
+  `test_gemini_client.py` and `test_response_parser.py` — scaffolded and
+  skipped, same as the netdiag tests. Two of these three are more interesting
+  than they look:
+  *`test_gemini_client.py`* is really a test of **retry/backoff logic**, not of
+  Gemini — it runs entirely against a fake client and must never touch the real
+  API (Section 10's own mitigation says don't re-call the API on every test
+  run). It covers the two bugs hand-written backoff always has: retrying
+  forever, and retrying errors that will never succeed (a 401 is not a 429).
+  *`test_response_parser.py`* is where the project meets the one input it
+  cannot control — a model that returns something you did not ask for. Note the
+  trap called out in that file: an analysis with an empty `causes` list is
+  **valid**, not malformed. A healthy machine produces exactly that, and a
+  parser that rejects it breaks the tool precisely when nothing is wrong.
 
 ## Phase 6 — Docs & polish (target: week 10)
 
@@ -69,6 +99,12 @@ Check items off as you go (`- [x]`).
   version anyone else reads.
 - [ ] Confirm `python hwcheck.py` runs end-to-end on a clean checkout
   (fresh venv + fresh `cpp/build/`).
+- [ ] Confirm both suites pass from that same clean checkout — `pytest` for the
+  Python side, and `ctest --test-dir cpp/build --output-on-failure` after a
+  `-DBUILD_TESTING=ON` configure. Run the C++ suite twice, once with
+  `-DENABLE_ASAN=ON` and once without, and note in the README if the results
+  differ: given #MEM-T1's subject matter, a difference between those two runs
+  is a *finding*, not a flake.
 - [ ] Re-read Acceptance Criteria (`docs/project-charter.md` Section 13)
   and check off each one honestly.
 
@@ -86,3 +122,15 @@ Check items off as you go (`- [x]`).
 - [ ] Decide whether `ai_analyzer`'s Gemini responses get cached locally
   during dev (`netdiag.config.CACHE_DIR` exists for this) — see
   `gemini_client.py`'s design question 3.
+- [ ] **Dangling cross-references to `league-ml`.** Four files point at a
+  sibling project that does not exist in this workspace: `README.md` (line
+  ~134), `hwcheck.py` (line 5), `python/ai_analyzer/gemini_client.py` (design
+  question 2, pointing at `riot_client.py`'s `#ING-2` retry TODO) and
+  `python/netdiag/config.py` (line 6). They were written assuming a
+  League-of-Legends ML repo alongside this one. Two honest resolutions: build
+  that project under the name `league-ml` and the references become real, or
+  strip them so nobody (including you in week 9) goes looking for a file that
+  was never written. Do not leave them as-is — a reference to a nonexistent
+  file is worse than no reference, and `gemini_client.py`'s is load-bearing
+  enough to matter: it offers a second worked example of the exact retry
+  problem #AI-2 asks you to solve.
