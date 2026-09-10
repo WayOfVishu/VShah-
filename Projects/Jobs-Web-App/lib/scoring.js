@@ -56,20 +56,40 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Employers abbreviate the same role a dozen ways, and a phrase list cannot
+// enumerate them: "ML/Research Engineer", "ML Systems", "RL Environments" all
+// name work that preferences.json spells out in full. Expanding known
+// abbreviations on BOTH sides of the comparison means the config stays written
+// in plain English while still matching the shorthand a board actually uses.
+//
+// Word-by-word rather than a substring pass, so "ml" does not fire inside
+// "html" and "ai" does not fire inside "chain".
+export function expandSynonyms(text, synonyms) {
+  if (!text || !synonyms) return String(text || "");
+  return String(text).replace(/[A-Za-z][A-Za-z0-9+#]*/g, (word) => {
+    const hit = synonyms[word.toLowerCase()];
+    return hit === undefined ? word : hit;
+  });
+}
+
 // Word-boundary phrase match, so "lead" hits "Team Lead" but not "Leadership".
 // A phrase that starts or ends with punctuation ("sr.") gets the boundary
 // dropped on that side, since \b would never fire there.
-export function matchesPhrase(haystack, phrase) {
+//
+// `synonyms` defaults to the configured map rather than to none, so every
+// existing call site gained abbreviation handling without being touched.
+export function matchesPhrase(haystack, phrase, synonyms = loadPreferences().synonyms) {
   if (!haystack || !phrase) return false;
-  const term = phrase.trim();
+  const term = expandSynonyms(phrase.trim(), synonyms).trim();
   if (!term) return false;
+  const target = expandSynonyms(haystack, synonyms);
   const lead = /^[a-z0-9]/i.test(term) ? "\\b" : "";
   const tail = /[a-z0-9]$/i.test(term) ? "\\b" : "";
-  return new RegExp(`${lead}${escapeRegExp(term)}${tail}`, "i").test(haystack);
+  return new RegExp(`${lead}${escapeRegExp(term)}${tail}`, "i").test(target);
 }
 
-export function matchesAny(haystack, phrases = []) {
-  return phrases.some((p) => matchesPhrase(haystack, p));
+export function matchesAny(haystack, phrases = [], synonyms = loadPreferences().synonyms) {
+  return phrases.some((p) => matchesPhrase(haystack, p, synonyms));
 }
 
 // Resolves a posting to its highest-weighted matching bucket: a role listed as
@@ -132,7 +152,22 @@ export function keywordScore(job, prefs = loadPreferences()) {
   const title = String(job.title || "");
   const description = String(job.description || "");
 
-  const role = matchesAny(title, prefs.roleKeywords) ? 1 : matchesAny(description, prefs.roleKeywords) ? 0.4 : 0;
+  // roles.primary and roles.similar both clear the ingest gate, but they are
+  // not worth the same in a ranking: "Research Engineer" is adjacent to the
+  // work he wants, "Software Engineer" is the work itself. A similar-title hit
+  // therefore scores at similarTitleFactor of a primary one, which keeps the
+  // widened net from pushing the near-misses above the direct hits.
+  const primary = prefs.primaryRoles || prefs.roleKeywords || [];
+  const similar = prefs.similarRoles || [];
+  const all = primary.length || similar.length ? [...primary, ...similar] : prefs.roleKeywords || [];
+
+  const role = matchesAny(title, primary)
+    ? 1
+    : matchesAny(title, similar)
+      ? (prefs.similarTitleFactor ?? 0.7)
+      : matchesAny(description, all)
+        ? 0.4
+        : 0;
   const level = matchesAny(title, prefs.levelKeywords) ? 1 : matchesAny(description, prefs.levelKeywords) ? 0.5 : 0;
   const timing = matchesAny(title, prefs.timingKeywords) ? 1 : matchesAny(description, prefs.timingKeywords) ? 0.7 : 0;
 

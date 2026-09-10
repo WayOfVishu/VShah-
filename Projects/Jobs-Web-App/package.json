@@ -6,7 +6,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "bootstrap-sources": "node scripts/bootstrap-sources.js"
+    "bootstrap-sources": "node scripts/bootstrap-sources.js",
+    "discover": "node discover.js",
+    "resolve-boards": "node scripts/resolve-boards.js",
+    "test": "node --test lib/*.test.js db/migrate.test.js connectors/workday.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
