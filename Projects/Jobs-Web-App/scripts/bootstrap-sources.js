@@ -1,23 +1,34 @@
 #!/usr/bin/env node
-// PRD req. 8 / Tasks.md 3.1: one-time bootstrap that derives config/sources.json's
-// seed values from data the user already has (the existing `jobs` table) instead
-// of a hand-typed or invented list.
+// PRD req. 8 / Tasks.md 3.1: seeds config/sources.json from data the user
+// already has (the existing `jobs` table) instead of a hand-typed list.
 //
 // Usage: node scripts/bootstrap-sources.js
+//
+// This used to probe Greenhouse/Lever/Ashby to work out which board each
+// company posted to, and wrote the answer into a tier1Watchlist of
+// company-plus-platform pairs. It no longer does either. sources.json now names
+// companies only, and lib/boardResolver.js finds the boards at discovery time
+// across every enabled platform — so the pairing cannot go stale here, and a
+// company that dual-posts is picked up on both boards rather than on whichever
+// one this script happened to probe first.
+//
+// What is left is the part that genuinely needs the database: which companies
+// the user has actually applied to, and what they call the roles they want.
+//
+// Merging, not overwriting. Rewriting the file wholesale (which this once did)
+// silently deleted every board the probe could not rediscover, turning "refresh
+// my keywords" into "throw away the Calgary employer list". Anything already in
+// the file stays; this only adds.
 
 import Database from "better-sqlite3";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as greenhouse from "../connectors/greenhouse.js";
-import * as lever from "../connectors/lever.js";
-import * as ashby from "../connectors/ashby.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The one shared jobs.db — see discover.js.
 const DB_PATH = process.env.JOBS_DB_PATH || path.join(__dirname, "..", "jobs.db");
 const OUT_PATH = path.join(__dirname, "..", "config", "sources.json");
-const PROBE_DELAY_MS = 150; // light politeness delay for the one-time probe pass
 
 const MIN_DISTINCT_TITLES = 5;
 const PLACEHOLDER_KEYWORDS = [
@@ -39,22 +50,18 @@ const SENIORITY_WORDS = [
   "entry level", "co-op", "coop", "associate", "director", "vp",
 ];
 
-// This script only knows how to *discover* Greenhouse, Lever and Ashby boards,
-// because those are the three it can find from a company name alone. Workday
-// needs a tenant, a cell and a site name; Workable, Recruitee and BambooHR
-// need a slug that is not derivable from the company's name either. Those are
-// added by hand (or by scripts/probe-workday.js).
-//
-// So a re-bootstrap merges rather than overwrites. Rewriting tier1Watchlist
-// wholesale, which is what this used to do, silently deleted every board the
-// probe cannot rediscover — turning "refresh my keywords" into "throw away the
-// Calgary employer list". Anything already in the file stays; the probe only
-// adds.
-function boardKey(entry) {
-  return entry.platform === "workday"
-    ? `workday:${entry.tenant}/${entry.site}`
-    : `${entry.platform}:${entry.slug}`;
-}
+// The shape a fresh file starts from, when there is no sources.json at all.
+const DEFAULT_PLATFORMS = {
+  greenhouse: { enabled: true, autoResolve: true, rateLimitMs: 2000 },
+  ashby: { enabled: true, autoResolve: true, rateLimitMs: 2000 },
+  lever: { enabled: true, autoResolve: true, rateLimitMs: 2000 },
+  workable: { enabled: true, autoResolve: true, rateLimitMs: 600 },
+  recruitee: { enabled: true, autoResolve: true, rateLimitMs: 600 },
+  bamboohr: { enabled: true, autoResolve: true, rateLimitMs: 600 },
+  // Addressed by tenant + cell + site, none of which is derivable from a
+  // company name, so it is never probed — see scripts/probe-workday.js.
+  workday: { enabled: true, autoResolve: false, rateLimitMs: 600 },
+};
 
 function readExistingConfig() {
   if (!existsSync(OUT_PATH)) return null;
@@ -64,40 +71,6 @@ function readExistingConfig() {
     console.warn(`  ${OUT_PATH} is not valid JSON — starting fresh rather than merging into it.`);
     return null;
   }
-}
-
-function slugCandidates(company) {
-  const cleaned = company
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim();
-  const noSpace = cleaned.replace(/\s+/g, "");
-  const hyphenated = cleaned.replace(/\s+/g, "-");
-  return [...new Set([noSpace, hyphenated])].filter(Boolean);
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function findBoard(company) {
-  for (const slug of slugCandidates(company)) {
-    for (const [platform, connector] of [
-      ["greenhouse", greenhouse],
-      ["lever", lever],
-      ["ashby", ashby],
-    ]) {
-      try {
-        if (await connector.probe(slug)) {
-          return { platform, slug };
-        }
-      } catch {
-        // treat any probe error as "no board on this platform" and move on
-      }
-      await sleep(PROBE_DELAY_MS);
-    }
-  }
-  return null;
 }
 
 function normalizeTitleToKeyword(title) {
@@ -123,6 +96,13 @@ function deriveKeywords(titles) {
     .slice(0, 15);
 }
 
+// Case-insensitive, so "1password" from the job log does not become a second
+// entry beside a hand-added "1Password".
+function alreadyListed(companies, name) {
+  const wanted = name.trim().toLowerCase();
+  return Object.keys(companies).some((c) => c.trim().toLowerCase() === wanted);
+}
+
 async function main() {
   if (!existsSync(DB_PATH)) {
     console.error(`jobs.db not found at ${DB_PATH} — start the dashboard once (npm start) to create it, or set JOBS_DB_PATH.`);
@@ -130,11 +110,11 @@ async function main() {
   }
 
   const db = new Database(DB_PATH, { readonly: true });
-  const companies = db.prepare("SELECT DISTINCT company FROM jobs").all().map((r) => r.company);
+  const loggedCompanies = db.prepare("SELECT DISTINCT company FROM jobs").all().map((r) => r.company);
   const titles = db.prepare("SELECT DISTINCT title FROM jobs").all().map((r) => r.title);
   db.close();
 
-  console.log(`Found ${companies.length} distinct companies and ${titles.length} distinct titles in jobs.db.`);
+  console.log(`Found ${loggedCompanies.length} distinct companies and ${titles.length} distinct titles in jobs.db.`);
 
   let keywords;
   let keywordSource;
@@ -146,49 +126,41 @@ async function main() {
     keywordSource = "derived from jobs.db title history";
   }
 
-  console.log(`Probing ${companies.length} companies against Greenhouse/Lever/Ashby public boards (this can take a few minutes)...`);
-  const tier1 = [];
-  for (const company of companies) {
-    const board = await findBoard(company);
-    if (board) {
-      console.log(`  found: ${company} -> ${board.platform}/${board.slug}`);
-      tier1.push({ name: company, platform: board.platform, slug: board.slug, rateLimitMs: 2000 });
-    }
+  const existing = readExistingConfig();
+  const companies = { ...(existing?.companies || {}) };
+
+  let added = 0;
+  for (const name of loggedCompanies) {
+    if (!name || alreadyListed(companies, name)) continue;
+    // An empty object means "look for this company on every enabled platform".
+    companies[name] = {};
+    added++;
+    console.log(`  added company: ${name}`);
   }
 
-  const existing = readExistingConfig();
-  const kept = existing?.tier1Watchlist || [];
-  const seen = new Set(kept.map(boardKey));
-  const added = tier1.filter((entry) => !seen.has(boardKey(entry)));
-  const watchlist = [...kept, ...added];
-
   const config = {
-    _comment: "Bootstrapped from jobs.db (PRD req. 8). Edit freely — this only sets the starting point.",
-    _watchlistNote: existing?._watchlistNote,
-    tier1SearchKeywords: existing?.tier1SearchKeywords,
-    tier1Watchlist: watchlist,
-    tier2Keywords: keywords,
-    tier2KeywordSource: keywordSource,
-    tier2Sources: existing?.tier2Sources || [
-      { name: "remotive", rateLimitMs: 2000 },
-      { name: "remoteok", rateLimitMs: 2000 },
-      { name: "weworkremotely", rateLimitMs: 2000 },
-    ],
-    tier2WwrCategories: existing?.tier2WwrCategories || [
-      "remote-programming-jobs",
-      "remote-devops-sysadmin-jobs",
-    ],
-    tier2CareerPages: existing?.tier2CareerPages || [],
+    platforms: existing?.platforms || DEFAULT_PLATFORMS,
+    companies,
+    aggregators: existing?.aggregators || {
+      remotive: { enabled: true, rateLimitMs: 2000 },
+      remoteok: { enabled: true, rateLimitMs: 2000 },
+    },
+    careerPages: existing?.careerPages || [],
+    searchKeywords: {
+      workday: existing?.searchKeywords?.workday || [
+        "software engineer", "software developer", "data engineer",
+        "data scientist", "machine learning", "python", "backend", "new grad",
+      ],
+      aggregators: keywords,
+    },
+    resolution: existing?.resolution || { cacheDays: 30, slugCandidateStyle: ["nospace", "hyphenated"] },
   };
-  for (const [k, v] of Object.entries(config)) if (v === undefined) delete config[k];
 
   writeFileSync(OUT_PATH, JSON.stringify(config, null, 2) + "\n");
   console.log(`\nWrote ${OUT_PATH}`);
-  console.log(
-    `  Tier 1 watchlist: ${watchlist.length} boards ` +
-      `(${kept.length} kept, ${added.length} newly found out of ${companies.length} companies checked)`
-  );
-  console.log(`  Tier 2 keywords (${keywordSource}): ${keywords.join(", ")}`);
+  console.log(`  Companies: ${Object.keys(companies).length} (${added} newly added from jobs.db)`);
+  console.log(`  Aggregator keywords: ${keywordSource}`);
+  console.log(`\nRun "node discover.js --resolve" to find boards for the new companies.`);
 }
 
 main();

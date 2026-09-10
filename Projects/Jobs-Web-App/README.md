@@ -48,8 +48,8 @@ A posting is ingested only if **all** of these hold:
 | Gate | Rule |
 |---|---|
 | Fresh | `posted_date` within `maxAgeDays`, whatever the dashboard's "Posted within" control is set to. Falls back to `first_seen_at` when a board gives no date. |
-| Role | Title matches a `roleKeywords` entry, or names a graduate program. |
-| Level | Title carries no `excludeTitleKeywords` marker — senior, staff, principal, lead, manager, intern. |
+| Role | Title matches `roles.primary` or `roles.similar`, or names an early-career program (`level.programs`). Abbreviations are expanded first, so `ML Systems` matches `machine learning`. |
+| Level | Title carries no `roles.exclude` marker — senior, sr, staff, principal, lead, manager, intern. |
 | Location | Resolves to one of your five locations. Off-list postings are dropped; postings with *no* stated location are kept and bucketed `unknown`. |
 | Not yours already | Not already in the applied log, by apply URL or by normalized title + company. |
 
@@ -194,20 +194,42 @@ would defeat the freshness gate rather than fail it.
 
 ### Adding a board
 
-Greenhouse, Lever and Ashby slugs are usually the company name. Workday's three
-parts are not derivable, so probe for them:
+You add a **company**, not a board:
+
+```json
+"companies": { "Anthropic": {} }
+```
+
+`{}` means "look for this company on every enabled platform". `lib/boardResolver.js`
+then probes each one, caching hits *and* misses in `board_cache` so the
+cross-product is paid once rather than every run:
+
+```
+node scripts/resolve-boards.js        # or: node discover.js --resolve
+```
+
+This replaced a hand-maintained list of company-plus-platform pairs. That list
+made every entry a standing guess, and a wrong guess failed silently — a role
+posted only to Ashby by a company filed under Greenhouse was never fetched, and
+nothing in the run said so. Resolving instead means a company that dual-posts is
+picked up on both boards, and one that migrates is picked up when its cache
+entry expires. Duplicate hits cost nothing: `lib/dedup.js` collapses the same
+role from two platforms and merges the `sources` list on the survivor.
+
+Workday's three parts are not derivable from a name, so it is never probed
+(`autoResolve: false`) and needs an override. Probe for the parts:
 
 ```
 node scripts/probe-workday.js westjet atco tcenergy
 ```
 
-It prints a ready-to-paste `tier1Watchlist` entry for every tenant that
-answers.
+It prints a ready-to-paste `companies` entry for every tenant that answers. A
+company can be pinned on Workday and still auto-resolved everywhere else.
 
-`npm run bootstrap-sources` **merges** into the watchlist rather than replacing
-it. It can only discover Greenhouse/Lever/Ashby boards from a company name, so
-overwriting would delete every Workday, Workable, Recruitee and BambooHR entry
-on every run.
+`npm run bootstrap-sources` **merges** into the company list rather than
+replacing it, and no longer probes at all — finding boards is the resolver's job
+now, so all it does is seed company names and search keywords from your `jobs`
+table history.
 
 ---
 
@@ -215,15 +237,20 @@ on every run.
 
 Everything above is data, not code. Two config files, deliberately separate:
 
-- **`config/preferences.json`** — what you want. Freshness window, role and
-  level and timing keywords, seniority exclusions, location weights, work-auth
-  handling, score weights. Every key is documented inline.
-- **`config/sources.json`** — where to look. Company watchlist, Tier 2 search
-  keywords, career pages.
+- **`config/preferences.json`** — what you want. Grouped into `roles`
+  (primary / similar / exclude), `synonyms`, `level`, `timing`, `locations`,
+  `scoring` and `feed`.
+- **`config/sources.json`** — where to look. `platforms`, `companies`,
+  `aggregators`, `careerPages`, `searchKeywords`.
 
-They are separate because `npm run bootstrap-sources` **rewrites
-`sources.json` wholesale**. It never touches `preferences.json`, so your
-preferences survive a re-bootstrap.
+**`config/README.md` documents every key.** The prose used to live inside the
+JSON as `_`-prefixed keys, which left twenty-odd real settings interleaved with
+their own documentation and no way to see the shape of either. Pre-refactor
+copies of both files are in `config/backup/`, and both still load if restored.
+
+They stay separate because `bootstrap-sources` writes `sources.json` and never
+touches `preferences.json`, so what you want survives a re-seed of where to
+look.
 
 Changing a preference re-judges rows already in the database automatically —
 it is the second phase of every **Refresh job searches** run. Change a filter,
@@ -266,7 +293,7 @@ picked.
 
 It is not a Tier 2 search keyword. Job boards index titles and descriptions,
 not start dates, so querying an API for `Jan 2027` returns almost nothing. It
-is handled as a scoring signal instead (`timingKeywords`), which boosts a
+is handled as a scoring signal instead (`timing` in preferences.json), which boosts a
 posting that does mention the window without hiding the ones that don't.
 
 ---
@@ -288,6 +315,7 @@ lib/
   rescore.js             re-apply preferences to rows already stored;
                          runs as phase two of every discovery run
   normalize.js           each board's shape -> one unified posting schema
+  boardResolver.js       company -> boards across every enabled platform
   dedup.js               fuzzy title+company+location matching across boards
   preferences.js         config loader with defaults
   scoring.js             location buckets, match_score, the balanced mix
@@ -305,7 +333,8 @@ db/
 public/                  the dashboard (app.js = applied log, discovered.js =
                          discovered view)
 scripts/
-  bootstrap-sources.js   derive sources.json from your applied history
+  bootstrap-sources.js   seed the company list from your applied history
+  resolve-boards.js      resolve companies to boards, print what was found
   probe-workday.js       find a company's Workday tenant/host/site
   rescore.js             --dry-run report of what re-judging would change
 resume/                  your base resume + generated drafts (git-ignored)

@@ -96,6 +96,40 @@ const GLOBAL_SCOPE = [
   /\bany (?:country|location|timezone)\b/i,
 ];
 
+// Boilerplate a posting has explicitly disowned.
+//
+// Large employers append a standing block of company-wide policy to every
+// posting and then say it does not apply to this one. Anthropic's fellowship
+// listings close with "The below are Anthropic's policies for full time roles.
+// These do NOT apply to the Fellows Program." and then state a 25%-in-office
+// "Location-based hybrid policy" — which matched HYBRID_SIGNALS and turned a
+// remote-friendly Canadian posting into a hybrid one, dropping it entirely
+// (its only other locations are off-list).
+//
+// This is the same failure as the Wealthsimple boilerplate noted above, one
+// level out: not a word that means something else in context, but a whole
+// section the employer has told us to ignore. Text from the disclaimer onward
+// is therefore not evidence about *this* role.
+const DISCLAIMER = [
+  /\bthese\s+do\s+not\s+apply\b/i,
+  /\bdo(?:es)?\s+not\s+apply\s+to\s+(?:the\s+)?[\w\s]{0,30}\b(?:program|fellowship|role|position)\b/i,
+  /\bthe\s+(?:below|following)\s+are\b[^.]{0,80}\bfor\s+full[- ]?time\s+roles\b/i,
+];
+
+// The body up to the first disclaimer. Used only for the hybrid question:
+// scope detection still reads the whole posting, because the countries a role
+// may be performed from are stated in the live section, and a truncation there
+// would lose more than it saved.
+export function beforeDisclaimer(body) {
+  const text = String(body || "");
+  let cut = text.length;
+  for (const re of DISCLAIMER) {
+    const m = re.exec(text);
+    if (m && m.index < cut) cut = m.index;
+  }
+  return text.slice(0, cut);
+}
+
 const anyMatch = (patterns, text) => patterns.some((re) => re.test(text));
 const firstMatch = (patterns, text) => patterns.find((re) => re.test(text));
 
@@ -126,7 +160,7 @@ export function classifyRemote(job) {
   // has to be attached to the role (see HYBRID_SIGNALS) to count.
   const hybridHit = /\bhybrid\b/i.test(header)
     ? /\bhybrid\b/i
-    : firstMatch(HYBRID_SIGNALS, body);
+    : firstMatch(HYBRID_SIGNALS, beforeDisclaimer(body));
 
   // An explicit "fully remote" outranks an incidental "hybrid" elsewhere in
   // the body; otherwise any hybrid signal settles it.

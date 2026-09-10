@@ -100,15 +100,20 @@ for (const tenant of tenants) {
   console.log(`  ${tenant.padEnd(20)} ${hit.host}/${hit.site} — ${hit.total} postings`);
   entries.push({
     name: cap(tenant),
-    platform: "workday",
-    tenant: hit.tenant,
-    host: hit.host,
-    site: hit.site,
-    rateLimitMs: 2000,
+    boards: { workday: { tenant: hit.tenant, host: hit.host, site: hit.site } },
   });
 }
 
+// Workday is the one platform lib/boardResolver.js cannot find on its own — a
+// board is addressed by tenant + cell + site, none of which follows from the
+// company name — so its entry in config/sources.json is written by hand, and
+// this is what writes it. The output is a `companies` entry, not a board:
+// everything else about the company is still auto-resolved.
 if (entries.length > 0) {
-  console.log(`\nPaste into tier1Watchlist in config/sources.json:\n`);
-  console.log(entries.map((e) => JSON.stringify(e, null, 2)).join(",\n"));
+  console.log(`\nPaste into "companies" in config/sources.json:\n`);
+  console.log(
+    entries
+      .map((e) => `  ${JSON.stringify(e.name)}: ${JSON.stringify({ boards: e.boards })}`)
+      .join(",\n")
+  );
 }

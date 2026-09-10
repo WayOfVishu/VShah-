@@ -25,6 +25,7 @@ import * as recruitee from "./connectors/recruitee.js";
 import * as bamboohr from "./connectors/bamboohr.js";
 import { normalize } from "./lib/normalize.js";
 import { buildDedupIndex, findDuplicate, addToIndex } from "./lib/dedup.js";
+import { resolveBoards } from "./lib/boardResolver.js";
 import { recordSourceSuccess, recordSourceFailure } from "./lib/sourceHealth.js";
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { loadPreferences } from "./lib/preferences.js";
@@ -159,14 +160,17 @@ function makeIngestor(db, summary, prefs) {
   };
 }
 
-async function runTier1(config, db, ingest, summary, prefs) {
+async function runTier1(config, db, ingest, summary, prefs, resolved = []) {
   const shouldFetchDetail = makeDetailPredicate(prefs);
   // Workday is searched, not listed, so it needs the search terms. Reusing
-  // roleKeywords rather than tier2Keywords keeps one list as the definition of
-  // "a role I would take" across the whole run.
-  const keywords = config.tier1SearchKeywords || prefs.roleKeywords || [];
+  // roleKeywords rather than the aggregator terms keeps one list as the
+  // definition of "a role I would take" across the whole run.
+  const keywords = config.searchKeywords?.workday || prefs.roleKeywords || [];
 
-  const boards = (config.tier1Watchlist || []).filter((entry) => {
+  // `resolved` comes from lib/boardResolver.js: one entry per company/platform
+  // pair that actually has a board, rather than the hand-maintained
+  // company-to-platform pairing sources.json used to carry.
+  const boards = resolved.filter((entry) => {
     if (SLUG_CONNECTORS[entry.platform] || ENTRY_CONNECTORS[entry.platform]) return true;
     console.warn(`  skipping unknown platform "${entry.platform}" for ${entry.name}`);
     return false;
@@ -208,15 +212,15 @@ async function runTier1(config, db, ingest, summary, prefs) {
 }
 
 async function runTier2(config, db, ingest, summary) {
-  const keywords = config.tier2Keywords || [];
-  const sourceRateLimit = (name) =>
-    (config.tier2Sources || []).find((s) => s.name === name)?.rateLimitMs || DEFAULT_TIER2_RATE_LIMIT_MS;
+  const keywords = config.searchKeywords?.aggregators || [];
+  const aggregators = config.aggregators || {};
+  const sourceRateLimit = (name) => aggregators[name]?.rateLimitMs || DEFAULT_TIER2_RATE_LIMIT_MS;
 
-  // `tier2Sources` is the list of sources to actually run, not just a table of
-  // rate limits. It used to be only the latter — every source below ran
-  // unconditionally, so deleting one from the config changed its throttle and
-  // nothing else, and the file quietly lied about what a run would do.
-  const enabled = (name) => (config.tier2Sources || []).some((s) => s.name === name);
+  // `enabled` is an explicit flag rather than mere presence in the file. Each
+  // aggregator below used to run unconditionally, so removing one changed its
+  // throttle and nothing else and the config quietly lied about what a run
+  // would do; keeping a disabled entry visible also documents *why* it is off.
+  const enabled = (name) => aggregators[name]?.enabled === true;
 
   // --- Remotive: one request per keyword (its API only supports single-term search) ---
   for (const keyword of enabled("remotive") ? keywords : []) {
@@ -253,11 +257,11 @@ async function runTier2(config, db, ingest, summary) {
   // --- WeWorkRemotely: category RSS feeds ---
   // Off by default: WeWorkRemotely charges the applicant to apply, so its
   // postings cost you money to act on. The connector is kept because nothing
-  // is wrong with it — re-add { "name": "weworkremotely" } to tier2Sources to
-  // turn it back on.
+  // is wrong with it — set aggregators.weworkremotely.enabled to true in
+  // config/sources.json to turn it back on.
   if (enabled("weworkremotely")) {
     try {
-      const raw = await weworkremotely.fetchPostings(config.tier2WwrCategories, {
+      const raw = await weworkremotely.fetchPostings(aggregators.weworkremotely?.categories, {
         throttledFetch: rateLimiter.throttledFetch,
         rateLimitMs: sourceRateLimit("weworkremotely"),
       });
@@ -271,7 +275,7 @@ async function runTier2(config, db, ingest, summary) {
   }
 
   // --- Career pages: schema.org JobPosting via Playwright (req. 3-4) ---
-  for (const entry of config.tier2CareerPages || []) {
+  for (const entry of config.careerPages || []) {
     try {
       const raw = await careerpage.fetchPostings(entry.url);
       recordSourceSuccess(db, entry.name);
@@ -326,18 +330,35 @@ async function main() {
       `off-list locations ${prefs.offListLocations === "drop" ? "dropped" : "kept"}`
   );
 
-  const platforms = [...new Set((config.tier1Watchlist || []).map((e) => e.platform))].sort();
+  // sources.json lists companies; which board each one actually has is
+  // resolved here (from cache, or by probing every enabled platform) rather
+  // than being hand-maintained in the config. `--resolve` forces a re-probe,
+  // which is what to run after adding companies.
+  const forceResolve = process.argv.includes("--resolve");
+  const companyCount = Object.keys(config.companies || {}).length;
+  console.log(`Resolving boards for ${companyCount} companies${forceResolve ? " (forced re-probe)" : ""}...`);
+  const { entries: boards, report } = await resolveBoards(config, db, {
+    force: forceResolve,
+    log: (line) => console.log(line),
+  });
   console.log(
-    `Running Tier 1 discovery over ${(config.tier1Watchlist || []).length} boards ` +
+    `  ${boards.length} boards (${report.found} found · ${report.overrides} overrides · ` +
+      `${report.cached} from cache · ${report.probed} probed` +
+      `${report.errors ? ` · ${report.errors} probe errors, will retry next run` : ""})`
+  );
+
+  const platforms = [...new Set(boards.map((e) => e.platform))].sort();
+  console.log(
+    `Running Tier 1 discovery over ${boards.length} boards ` +
       `(${platforms.join(" / ") || "none configured"})...`
   );
-  await runTier1(config, db, ingest, summary, prefs);
+  await runTier1(config, db, ingest, summary, prefs, boards);
 
   // Named from the config rather than a fixed string, so turning a source off
   // is visible in the run log instead of the log still claiming it ran.
   const tier2Names = [
-    ...(config.tier2Sources || []).map((s) => s.name),
-    ...((config.tier2CareerPages || []).length ? ["career pages"] : []),
+    ...Object.entries(config.aggregators || {}).filter(([, v]) => v.enabled).map(([name]) => name),
+    ...((config.careerPages || []).length ? ["career pages"] : []),
   ];
   console.log(`Running Tier 2 discovery (${tier2Names.join(" / ") || "none configured"})...`);
   await runTier2(config, db, ingest, summary);

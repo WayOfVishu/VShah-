@@ -271,3 +271,40 @@ test("remote across Canada does occupy the remote bucket", () => {
   };
   assert.equal(locationBucket(job, prefs), "remote");
 });
+
+// --- abbreviation handling -------------------------------------------------
+
+test("abbreviations expand on both sides of the comparison", () => {
+  // Boards write the shorthand; preferences.json is written in plain English.
+  // Without expansion "ML Systems & Reinforcement Learning" matched nothing,
+  // which is how a Canada-eligible Anthropic posting stayed out of the feed.
+  const syn = { ml: "machine learning", rl: "reinforcement learning" };
+  assert.equal(matchesPhrase("ML Systems & Reinforcement Learning", "ml systems", syn), true);
+  assert.equal(matchesPhrase("Anthropic Fellows Program, ML Systems", "machine learning systems", syn), true);
+  assert.equal(matchesPhrase("Research Engineer, Code RL", "reinforcement learning", syn), true);
+});
+
+test("an abbreviation does not fire inside a longer word", () => {
+  const syn = { ml: "machine learning", ai: "artificial intelligence" };
+  assert.equal(matchesPhrase("HTML Developer", "machine learning", syn), false);
+  assert.equal(matchesPhrase("Blockchain Engineer", "artificial intelligence", syn), false);
+});
+
+test("a similar-title hit ranks below a primary one but above a description hit", () => {
+  const tiered = {
+    ...DEFAULT_PREFERENCES,
+    primaryRoles: ["software engineer"],
+    similarRoles: ["research engineer"],
+    similarTitleFactor: 0.7,
+    levelKeywords: [],
+    timingKeywords: [],
+  };
+
+  const primary = keywordScore({ title: "Software Engineer", description: "" }, tiered);
+  const similar = keywordScore({ title: "Research Engineer", description: "" }, tiered);
+  const body = keywordScore({ title: "Widget Wrangler", description: "software engineer" }, tiered);
+
+  assert.ok(primary > similar, "widening the net must not push near-misses above direct hits");
+  assert.ok(similar > body);
+  assert.ok(Math.abs(similar - 0.5 * 0.7) < 1e-9);
+});

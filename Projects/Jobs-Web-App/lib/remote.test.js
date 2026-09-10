@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyRemote, isTrulyRemote } from "./remote.js";
+import { classifyRemote, isTrulyRemote, beforeDisclaimer } from "./remote.js";
 
 const job = (location, description = "", remote_status = null) => ({ location, description, remote_status });
 
@@ -128,4 +128,43 @@ test("hybrid in the location field always counts", () => {
   // That field is the employer's structured statement of where the job is, so
   // the word there is never incidental.
   assert.equal(classifyRemote(job("Calgary, AB (Hybrid)", "A great opportunity.")).isHybrid, true);
+});
+
+// --- disclaimed boilerplate ------------------------------------------------
+
+test("a hybrid policy the posting disowns is not evidence about the role", () => {
+  // Anthropic's fellowship listings append the company's full-time-roles
+  // policy block and disclaim it one line above. The 25%-in-office "hybrid
+  // policy" in that block matched HYBRID_SIGNALS and turned a remote-friendly
+  // Canada-eligible posting hybrid, which dropped it entirely: its only other
+  // locations are off-list.
+  const job = {
+    location: "London, UK; Ontario, CAN; Remote-Friendly, United States; San Francisco, CA",
+    description: [
+      "We are also open to remote fellows in the UK, US, or Canada.",
+      "The below are Anthropic's policies for full time roles. These do NOT apply to the Fellows Program.",
+      "Location-based hybrid policy: Currently, we expect all staff to be in one of our offices at least 25% of the time.",
+    ].join("\n"),
+  };
+
+  const verdict = classifyRemote(job);
+  assert.equal(verdict.isHybrid, false);
+  assert.equal(verdict.qualifies, true);
+});
+
+test("a hybrid policy stated before any disclaimer still counts", () => {
+  const job = {
+    location: "Remote",
+    description: [
+      "This is a hybrid role: 3 days in office each week.",
+      "The below are our policies for full time roles. These do NOT apply to contractors.",
+    ].join("\n"),
+  };
+
+  assert.equal(classifyRemote(job).isHybrid, true, "the disclaimer must not retroactively erase a real signal");
+});
+
+test("beforeDisclaimer keeps everything when nothing is disclaimed", () => {
+  const body = "Fully remote across Canada. Hybrid role, 2 days in office.";
+  assert.equal(beforeDisclaimer(body), body);
 });
