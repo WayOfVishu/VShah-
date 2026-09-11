@@ -10,6 +10,7 @@
 
 import { loadPreferences } from "./preferences.js";
 import { isTrulyRemote } from "./remote.js";
+import { resumeFit, defaultResumeProfile } from "./resumeFit.js";
 
 // Each bucket's patterns are tried against the location string and, for
 // `remote`, the connector's remote_status flag.
@@ -177,18 +178,32 @@ export function keywordScore(job, prefs = loadPreferences()) {
 // The full picture for one posting: its bucket, its score, and the parts the
 // score came from, so the dashboard can explain a ranking rather than just
 // asserting one.
-export function scoreJob(job, prefs = loadPreferences()) {
+//
+// `resume` defaults to the base resume only when prefs.resumeWeight is set, so
+// a caller that never configured resume fit gets exactly the preference score.
+export function scoreJob(job, prefs = loadPreferences(), resume = defaultResumeProfile(prefs)) {
   const bucket = locationBucket(job, prefs);
   const loc = locationScore(job, prefs, bucket);
   const kw = keywordScore(job, prefs);
   const { location: wLoc, keyword: wKw } = prefs.scoreWeights;
+  const preference = wLoc * loc + wKw * kw;
+
+  // Resume fit is a minority share laid over the preference score, never a
+  // replacement for it: (1 - w) of every score is still the preference score.
+  // A posting that names no recognizable skill keeps its preference score as
+  // is, rather than taking a zero that would read as a bad fit.
+  const w = resume && prefs.resumeWeight > 0 ? prefs.resumeWeight : 0;
+  const fit = w > 0 ? resumeFit(job, resume) : null;
+  const matchScore = fit?.score == null ? preference : (1 - w) * preference + w * fit.score;
 
   return {
     bucket,
     locationScore: Number(loc.toFixed(4)),
     keywordScore: Number(kw.toFixed(4)),
     unsponsoredUS: bucket ? isUnsponsoredUS(job, bucket, prefs) : false,
-    matchScore: Number((wLoc * loc + wKw * kw).toFixed(4)),
+    resumeScore: fit?.score ?? null,
+    resumeSkills: fit?.score == null ? null : { have: fit.have, missing: fit.missing },
+    matchScore: Number(matchScore.toFixed(4)),
   };
 }
 

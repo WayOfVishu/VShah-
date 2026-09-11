@@ -183,8 +183,29 @@ onward is not evidence about the role.
 
 ### scoring
 
-`match_score = location * location_score + keyword * keyword_score`. Location
-leads because it's the constraint you were most specific about.
+The preference score is `location * location_score + keyword * keyword_score`.
+Location leads because it's the constraint you were most specific about.
+
+**`resumeWeight`** lays resume fit over that, as a minority share:
+
+```
+match_score = (1 - resumeWeight) * preference score + resumeWeight * resume fit
+```
+
+At `0.25`, three quarters of every score is still exactly the preference score,
+so resume fit reorders postings your preferences already rate about the same;
+it can't lift a Vancouver role past a Calgary one on skills alone. `0` (the
+default when unset) turns it off.
+
+Resume fit (`lib/resumeFit.js`) compares the skills a posting names against the
+skills `resume/base-resume.md` names, using one vocabulary for both sides. It is
+half *coverage* — the share of the posting's asks you have — and half *depth* —
+how many you have, saturating around eight — so a 25-technology wish list where
+you have 12 still reads as a good match. A posting that names no skill in the
+vocabulary gets no resume share at all rather than a zero. The dashboard's score
+tooltip lists what you have and what the posting also asks for. A skill missing
+from the vocabulary is invisible on both sides, so add new ones there as well as
+to your resume.
 
 ### feed
 
