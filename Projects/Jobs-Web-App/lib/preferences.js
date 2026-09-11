@@ -43,6 +43,9 @@ export const DEFAULT_PREFERENCES = {
   usNoSponsorshipPenalty: 0.35,
   scoreWeights: { location: 0.65, keyword: 0.35 },
   similarTitleFactor: 0.7,
+  // Off unless configured: with no preferences file, scores stay pure
+  // preference and no resume is read.
+  resumeWeight: 0,
 };
 
 // A file is in the grouped shape if it uses any of the group keys. Anything
@@ -94,6 +97,7 @@ function flatten(raw) {
     if (scoring.keyword !== undefined) pair.keyword = scoring.keyword;
     if (Object.keys(pair).length) out.scoreWeights = pair;
     if (scoring.similarTitleFactor !== undefined) out.similarTitleFactor = scoring.similarTitleFactor;
+    if (scoring.resumeWeight !== undefined) out.resumeWeight = scoring.resumeWeight;
   }
   if (feed) {
     if (feed.maxAgeDays !== undefined) out.maxAgeDays = feed.maxAgeDays;

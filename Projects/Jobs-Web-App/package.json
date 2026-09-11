@@ -9,6 +9,9 @@
     "bootstrap-sources": "node scripts/bootstrap-sources.js",
     "discover": "node discover.js",
     "resolve-boards": "node scripts/resolve-boards.js",
+    "schedule": "node scripts/schedule-discovery.js",
+    "schedule:status": "node scripts/schedule-discovery.js --status",
+    "unschedule": "node scripts/schedule-discovery.js --remove",
     "test": "node --test lib/*.test.js db/migrate.test.js connectors/workday.test.js"
   },
   "dependencies": {

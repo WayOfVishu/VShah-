@@ -520,6 +520,25 @@ function emptyStateMessage() {
   return msg;
 }
 
+// The score is a blend, so the bare number hides which part moved it. The
+// tooltip lays out every part; the muted line under the number is the resume
+// share on its own, because it is the one no filter setting can explain.
+function scoreCell(job) {
+  if (job.match_score == null) return "<td>–</td>";
+  const two = (n) => (n == null ? "–" : Number(n).toFixed(2));
+  const lines = [`Location ${two(job.location_score)} · Keywords ${two(job.keyword_score)}`];
+  if (job.resume_score != null) {
+    lines.push(`Resume fit ${two(job.resume_score)}`);
+    const { have = [], missing = [] } = job.resume_skills || {};
+    if (have.length) lines.push(`You have: ${have.join(", ")}`);
+    if (missing.length) lines.push(`Also asks for: ${missing.join(", ")}`);
+  } else {
+    lines.push("Resume fit: none (the posting names no skills we recognize)");
+  }
+  const fit = job.resume_score == null ? "" : `<div class="score-fit">fit ${two(job.resume_score)}</div>`;
+  return `<td class="score-cell" title="${esc(lines.join("\n"))}">${two(job.match_score)}${fit}</td>`;
+}
+
 function renderDiscovered(animate = true) {
   // The server has already applied every filter in the bar, so this renders
   // what it returned rather than filtering a second time over the same rows.
@@ -555,7 +574,7 @@ function renderDiscovered(animate = true) {
           <td class="company-cell">${esc(job.company)}</td>
           <td>${bucket}${esc(job.location || "–")}</td>
           <td class="sources-cell">${esc(sources)}</td>
-          <td>${job.match_score == null ? "–" : job.match_score.toFixed(2)}</td>
+          ${scoreCell(job)}
           <td><span class="status-pill status-${job.status}">${STATUS_LABELS[job.status] || job.status}</span></td>
           <td class="row-actions">${actionsFor(job)}</td>
         </tr>`;

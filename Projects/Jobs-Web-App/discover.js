@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Discovery run (PRD req. 13-16). Started as a child process by the Refresh
-// button in the Discovered view; still runnable directly as `node discover.js`.
+// Discovery run (PRD req. 13-16). Started three ways: as a child process by the
+// Refresh button in the Discovered view, once a day by the Windows scheduled
+// task (`npm run schedule`, via scripts/scheduled-run.js), or directly as
+// `node discover.js`. lib/runLock.js keeps any two of those from overlapping.
 // Orchestrates Tier 1 + Tier 2 connectors, normalizes, dedups, inserts new
 // discovered_jobs rows, prints a run summary, and sweeps stale rows into
-// `archived`. No OS-level scheduler triggers this — the user runs it by hand.
-// stdout is what the dashboard shows as the run log, so the summary below is
-// user-facing output, not debug logging.
+// `archived`. stdout is what the dashboard shows as the run log (and what a
+// scheduled run writes to logs/), so the summary below is user-facing output,
+// not debug logging.
 
 import Database from "better-sqlite3";
 import path from "node:path";
@@ -30,6 +32,8 @@ import { recordSourceSuccess, recordSourceFailure } from "./lib/sourceHealth.js"
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { loadPreferences } from "./lib/preferences.js";
 import { rescoreRows, activeCount } from "./lib/rescore.js";
+import { defaultResumeProfile } from "./lib/resumeFit.js";
+import { acquireRunLock } from "./lib/runLock.js";
 import {
   ingestGate,
   buildAppliedIndex,
@@ -111,10 +115,10 @@ function makeIngestor(db, summary, prefs) {
   const insertStmt = db.prepare(`
     INSERT INTO discovered_jobs
       (job_id, sources, title, company, location, salary, description, apply_url, posted_date, remote_status, status,
-       match_score, location_bucket, location_score, keyword_score, unsponsored_us)
+       match_score, location_bucket, location_score, keyword_score, unsponsored_us, resume_score, resume_skills)
     VALUES
       (@job_id, @sources, @title, @company, @location, @salary, @description, @apply_url, @posted_date, @remote_status, 'new',
-       @match_score, @location_bucket, @location_score, @keyword_score, @unsponsored_us)
+       @match_score, @location_bucket, @location_score, @keyword_score, @unsponsored_us, @resume_score, @resume_skills)
   `);
   const mergeSourcesStmt = db.prepare("UPDATE discovered_jobs SET sources = ? WHERE id = ?");
 
@@ -154,6 +158,8 @@ function makeIngestor(db, summary, prefs) {
       location_score: gate.locationScore,
       keyword_score: gate.keywordScore,
       unsponsored_us: gate.unsponsoredUS ? 1 : 0,
+      resume_score: gate.resumeScore,
+      resume_skills: gate.resumeSkills ? JSON.stringify(gate.resumeSkills) : null,
     });
     summary.inserted++;
     addToIndex(index, { ...job, id: info.lastInsertRowid, sources: sourcesJson });
@@ -307,6 +313,16 @@ async function main() {
   }
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 
+  // Per database, not per checkout: a run pointed at a scratch copy through
+  // JOBS_DB_PATH shouldn't wait on one writing the real file.
+  const lock = acquireRunLock(`${DB_PATH}.discover.lock`);
+  if (!lock.acquired) {
+    const since = lock.holder?.startedAt ? ` since ${new Date(lock.holder.startedAt).toLocaleString()}` : "";
+    console.log(`Another discovery run is already in progress (pid ${lock.holder?.pid ?? "?"}${since}). Skipping this one.`);
+    return;
+  }
+  process.on("exit", lock.release);
+
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   // The dashboard is serving reads off this same file while this run writes
@@ -328,6 +344,14 @@ async function main() {
     `Filters: ${ageLabel} · ` +
       `${Object.entries(prefs.locationWeights).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" / ")} · ` +
       `off-list locations ${prefs.offListLocations === "drop" ? "dropped" : "kept"}`
+  );
+  const resume = defaultResumeProfile(prefs);
+  console.log(
+    resume
+      ? `Resume fit: ${resume.skills.size} skills recognized in your base resume, ${Math.round(prefs.resumeWeight * 100)}% of each score`
+      : prefs.resumeWeight > 0
+        ? "Resume fit: off (no resume/base-resume.md found)"
+        : "Resume fit: off (scoring.resumeWeight is 0)"
   );
 
   // sources.json lists companies; which board each one actually has is

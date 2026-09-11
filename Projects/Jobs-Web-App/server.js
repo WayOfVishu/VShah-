@@ -132,7 +132,14 @@ app.delete("/api/jobs/:id", (req, res) => {
 // directly, so no endpoint can quietly move a row to `tailored` without going
 // through the confirmation + generation path (PRD §8).
 // ---------------------------------------------------------------------------
-const asRow = (row) => (row ? { ...row, sources: JSON.parse(row.sources || "[]") } : row);
+const asRow = (row) =>
+  row
+    ? {
+        ...row,
+        sources: JSON.parse(row.sources || "[]"),
+        resume_skills: row.resume_skills ? JSON.parse(row.resume_skills) : null,
+      }
+    : row;
 
 // Newest-first by the date the table actually shows — posted_date, falling
 // back to first_seen_at when a connector gave none. Sorting on first_seen_at

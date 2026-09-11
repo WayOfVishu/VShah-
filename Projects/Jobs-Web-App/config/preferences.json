@@ -111,7 +111,8 @@
   "scoring": {
     "location": 0.65,
     "keyword": 0.35,
-    "similarTitleFactor": 0.7
+    "similarTitleFactor": 0.7,
+    "resumeWeight": 0.25
   },
   "feed": {
     "maxAgeDays": 14,

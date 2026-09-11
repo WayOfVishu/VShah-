@@ -1,9 +1,10 @@
 # Jobs Web App
 
 A local job-search workbench: it discovers postings, ranks them against your
-stated preferences, tailors a resume against the ones you approve, and tracks
-every application you send. One Express server, one SQLite file, no cloud
-services and no scheduler — you run it when you want it.
+stated preferences and your resume, tailors a resume against the ones you
+approve, and tracks every application you send. One Express server, one SQLite
+file, no cloud services. Discovery runs once a day on its own and whenever you
+hit Refresh.
 
 Formed by merging the two halves that used to live apart, `Job-Board-Scraping`
 and `Job-Tracking-Dash`. They already shared a database and the dashboard was
@@ -21,6 +22,44 @@ streams its output into the panel below the button, and reloads the feed when it
 finishes. The server runs it as a child process, so the dashboard stays
 responsive while Playwright works and a connector that crashes hard cannot take
 the server down with it.
+
+### The daily run
+
+```
+npm run schedule                                 # once a day at 18:00
+npm run schedule:status                          # when it last ran, and how it went
+npm run unschedule
+node scripts/schedule-discovery.js --at 07:30    # another time
+node scripts/schedule-discovery.js --run         # (re)install and run one now
+```
+
+(The flags go on `node`, not `npm run schedule -- --at …`: Windows PowerShell
+eats the `--`, and npm then swallows the flag.)
+
+This registers a Windows scheduled task that runs the same discovery the Refresh
+button does, with or without the dashboard open. Applying within a day of a
+posting going up is most of the advantage, and a search you have to remember to
+start doesn't get you there.
+
+- **Logged in, or not.** From an ordinary terminal it registers as
+  run-while-logged-in: a locked screen counts, only a full sign-out stops it.
+  Run the install once from an **administrator** terminal and it registers as
+  run-whether-logged-in-or-not instead, with no stored password. It says which.
+- **Evening, local time.** 18:00 is after the working day everywhere from
+  Vancouver to Toronto, so one run catches the day's postings while they're
+  still under 24 hours old. The time is the PC's local time (Calgary here) and
+  follows daylight saving on its own.
+- **Missed days catch up.** If the PC was off or asleep at 18:00, the run starts
+  as soon as it's back. It runs on battery too, and waits for a network.
+- **Output goes to `logs/`**, one file per run, newest 30 kept — the same run
+  summary the dashboard would have streamed.
+- **Never two at once.** A Refresh click during a scheduled run (or the reverse)
+  is turned away with a message instead of racing it: two overlapping runs would
+  both insert the same new posting, and the second would die on the unique index.
+  `lib/runLock.js` holds a lock file next to the database for the length of a run.
+
+The task stores absolute paths to Node and to this folder, so re-run
+`npm run schedule` after moving the project or upgrading Node.
 
 ---
 
@@ -65,7 +104,8 @@ database is a log; the feed is a view over it.
 
 ## How a posting is scored
 
-`match_score` runs 0–1 and is 65% location, 35% keywords.
+`match_score` runs 0–1. Three quarters of it is your preferences — 65% location,
+35% keywords — and the last quarter is resume fit, covered below.
 
 **Location** is your stated preference mix, normalized so your top choice
 scores a flat 1.0 rather than its raw 0.35:
@@ -129,6 +169,31 @@ posting — Seattle, or a remote role restricted to the US — that never mentio
 sponsorship has its location score cut to 35%. It stays visible, flagged 🛂 in
 the table, but it stops consuming your 5% Seattle share. Postings that do
 mention visas or sponsorship keep their full weight.
+
+### Resume fit
+
+Preferences answer "is this a job I want". Resume fit answers "is this a job I'd
+hear back from": of the skills a posting names, how many does
+`resume/base-resume.md` name too? `lib/resumeFit.js` reads both sides with one
+vocabulary of about 150 skills. Your resume currently yields 48 of them, from
+Databricks and dbt to YOLO and RAG.
+
+It is a minority share on purpose (`scoring.resumeWeight`, 0.25). A perfect
+skills match can't lift a Vancouver role past a Calgary one; it reorders
+postings your preferences already rate about the same. That is mostly where it
+matters anyway: within one location bucket, where the balanced mix orders rows
+by score.
+
+The fit is half *coverage* (the share of the posting's asks you have) and half
+*depth* (how many you have, saturating around eight), because each alone is
+wrong in a common case: coverage alone punishes a 25-technology wish list where
+you have 12, and depth alone ignores what you're missing. A posting that names
+no recognizable skill keeps its preference score untouched rather than taking
+a zero.
+
+Hover a score in the Discovered view to see the parts: location, keywords, fit,
+the skills you have, and the ones the posting also asks for. The muted `fit`
+line under each score is the resume share on its own.
 
 ---
 
@@ -314,6 +379,9 @@ connectors/              one module per board. Slug boards (greenhouse, lever,
 lib/
   rescore.js             re-apply preferences to rows already stored;
                          runs as phase two of every discovery run
+  resumeFit.js           skills a posting names vs. skills your resume names
+  runLock.js             one discovery run at a time, scheduled or clicked
+  scheduledTask.js       the Windows task definition behind `npm run schedule`
   normalize.js           each board's shape -> one unified posting schema
   boardResolver.js       company -> boards across every enabled platform
   dedup.js               fuzzy title+company+location matching across boards
@@ -337,11 +405,14 @@ scripts/
   resolve-boards.js      resolve companies to boards, print what was found
   probe-workday.js       find a company's Workday tenant/host/site
   rescore.js             --dry-run report of what re-judging would change
+  schedule-discovery.js  install / remove / check the daily scheduled run
+  scheduled-run.js       what that task runs: discover.js, output to logs/
+logs/                    one file per scheduled run (git-ignored)
 resume/                  your base resume + generated drafts (git-ignored)
 jobs.db                  the single SQLite file both entry points share
 ```
 
-`node --test` runs the suite — 94 tests, no network, no database of its own.
+`npm test` runs the suite — 181 tests, no network, no database of its own.
 
 ---
 
@@ -358,10 +429,17 @@ the single approval gate — there is no second prompt behind it.
 ## Known gaps
 
 **Alberta posts very few junior IC engineering roles.** The watchlist gap is
-closed — it now carries 25 boards including Calgary-headquartered Neo
-Financial, Benevity, Suncor, Cenovus, Enbridge and Ovintiv. But the scarcity
+closed — it now carries 100 companies, including Calgary-headquartered Neo
+Financial, Benevity, Suncor, Cenovus, Enbridge, Ovintiv and TC Energy. But the scarcity
 behind it was real, and expanding the sources measured it rather than fixed
-it. Of the Alberta postings on the best five non-Workday boards, the number
+it. The September 2026 expansion (Canadian remote-first employers, Vancouver
+offices, and the data-platform companies whose stack matches the resume —
+Databricks, Fivetran, Astronomer) took the remote bucket from 5 active postings
+to 40 in one run, and Calgary from 3 to 4.
+
+Two Calgary employers worth watching can't be read by any connector here:
+Pembina posts through SAP SuccessFactors, and ATB through its own careers site.
+Check those by hand. Of the Alberta postings on the best five non-Workday boards, the number
 surviving the role and seniority gates was:
 
 | Board | Alberta postings | Survive the gate |

@@ -33,7 +33,8 @@ export function rescoreRows(db, prefs, { dryRun = false } = {}) {
     UPDATE discovered_jobs
        SET match_score = @match_score, location_bucket = @location_bucket,
            location_score = @location_score, keyword_score = @keyword_score,
-           unsponsored_us = @unsponsored_us, status = @status
+           unsponsored_us = @unsponsored_us, resume_score = @resume_score,
+           resume_skills = @resume_skills, status = @status
      WHERE id = @id
   `);
 
@@ -67,6 +68,8 @@ export function rescoreRows(db, prefs, { dryRun = false } = {}) {
           location_score: scored.locationScore,
           keyword_score: scored.keywordScore,
           unsponsored_us: scored.unsponsoredUS ? 1 : 0,
+          resume_score: scored.resumeScore,
+          resume_skills: scored.resumeSkills ? JSON.stringify(scored.resumeSkills) : null,
           status,
         });
       }
