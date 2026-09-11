@@ -122,7 +122,10 @@ Check items off as you go (`- [x]`).
 - [ ] Decide whether `ai_analyzer`'s Gemini responses get cached locally
   during dev (`netdiag.config.CACHE_DIR` exists for this) — see
   `gemini_client.py`'s design question 3.
-- [ ] **Dangling cross-references to `league-ml`.** Four files point at a
+- [x] **Dangling cross-references to `league-ml`.** *Resolved 2026-09-10:
+  the project now exists at `Projects/League-ML`, and all four references
+  point at real files (`leagueml/` is its package, `run.py` its entry point).*
+  Four files point at a
   sibling project that does not exist in this workspace: `README.md` (line
   ~134), `hwcheck.py` (line 5), `python/ai_analyzer/gemini_client.py` (design
   question 2, pointing at `riot_client.py`'s `#ING-2` retry TODO) and

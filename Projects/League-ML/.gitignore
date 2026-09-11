@@ -1,0 +1,20 @@
+# The repo-root .gitignore already covers .env, __pycache__/, .pytest_cache/,
+# .venv/ and venv/. This file adds what is specific to this project.
+
+# --- data ---
+# Everything under data/ is fetched or generated, not authored: raw Riot JSON
+# (large, and Riot's to redistribute, not ours), the SQLite database, the
+# participant table, trained weights. The directory skeleton is kept via the
+# .gitkeep files. The experiment log (#EVAL-1) is the one file that arguably
+# *should* be committed -- decide that deliberately and add a negation here.
+/data/**
+!/data/**/
+!/data/**/.gitkeep
+
+# --- models ---
+*.pt
+*.pkl
+*.joblib
+
+# --- notebooks ---
+.ipynb_checkpoints/

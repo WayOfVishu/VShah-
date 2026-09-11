@@ -40,9 +40,9 @@ def get_client() -> genai.Client:
 #   2. Retry with backoff — fixed delay, or exponential? How many attempts
 #      before giving up and surfacing the failure to the caller? (There's a
 #      real project precedent for this exact shape of problem: compare
-#      against league-ml/src/ingestion/riot_client.py's #ING-2 TODO in the
-#      other repo in this workspace, if you want a second example of the
-#      same design problem in a different SDK.)
+#      against Projects/League-ML/leagueml/ingestion/riot_client.py's #ING-2
+#      TODO, if you want a second example of the same design problem in a
+#      different API.)
 #   3. project-charter.md Section 10's mitigation for this risk says "cache
 #      responses locally during dev so you're not re-calling the API on
 #      every test run". Where would that caching live — inside this
