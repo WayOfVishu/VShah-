@@ -70,6 +70,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 TODO_SOURCES = [
     REPO_ROOT / "Projects" / "Hardware-Check" / "docs" / "TODO.md",
     REPO_ROOT / "Projects" / "Stocks" / "docs" / "TODO.md",
+    REPO_ROOT / "Projects" / "League-ML" / "docs" / "TODO.md",
 ]
 
 

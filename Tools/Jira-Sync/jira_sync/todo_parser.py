@@ -60,8 +60,12 @@ using it returns 26 items instead of 28 and looks entirely healthy.
 The general lesson is worth more than the specific fix: a parser that finds
 *most* of the input is the hardest kind of wrong to notice, because nothing
 errors and the output looks plausible. This is why the counts are written down
-in `docs/TODO.md` — 13 tagged in Hardware-Check, 15 in Stocks, 28 total. Check
-against them rather than eyeballing the result.
+in `docs/TODO.md` — 13 tagged in Hardware-Check, 15 in Stocks, 27 in League-ML,
+55 total. Check against them rather than eyeballing the result.
+
+League-ML uses Stocks' `**#TAG · Title.**` form, so it adds no third format —
+but it is the first file where *every* item is tagged, which makes it the
+easiest of the three to check a parser against by hand.
 
 ---
 
@@ -108,11 +112,13 @@ def parse_todo_file(path: Path) -> list[dict[str, Any]]:
 # Thin wrapper over #JIRA-10 across config.TODO_SOURCES.
 #
 # Design question worth two minutes: tags are unique within a file, but are
-# they unique *across* files? Hardware-Check uses #SYS/#MEM/#NET/#AI and Stocks
-# uses #ML, so today the answer is yes — by luck, not by design. If the League
-# project adds #ING-2 (as `gemini_client.py` already references), and something
-# else later also picks #ING, two different items map to one Jira issue and one
-# silently overwrites the other's identity.
+# they unique *across* files? Hardware-Check uses #SYS/#MEM/#NET/#AI, Stocks
+# uses #ML, and League-ML uses #ING/#FEAT/#DL/#EVAL/#REC/#LML — so today the
+# answer is yes, by luck, not by design. League-ML's #ING-2 (the one
+# `gemini_client.py` references) now exists; if something else later also
+# picks #ING — or #EVAL, or #FEAT, which are generic enough that it will — two
+# different items map to one Jira issue and one silently overwrites the
+# other's identity.
 #
 # Should this detect collisions and raise? Namespace tags by project? Or just
 # document the assumption and move on? All three are legitimate; the one that

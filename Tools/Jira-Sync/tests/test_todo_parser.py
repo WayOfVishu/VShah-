@@ -151,7 +151,7 @@ def test_tags_without_a_trailing_number_are_found(tmp_path):
 def test_real_files_yield_the_expected_counts():
     # TODO: the integration check, against the actual repo files rather than a
     # fixture. As of writing: 13 tagged items in Hardware-Check, 15 in Stocks,
-    # 28 total.
+    # 27 in League-ML, 55 total.
     #
     # This test WILL need updating as you add TODO items, and that is fine —
     # it is the only test here that touches real data, and its job is to catch

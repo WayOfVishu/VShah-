@@ -2,8 +2,7 @@
 """
 Repo-root entry point — lets you run `python hwcheck.py ...` from
 hardware-check/ without fiddling with PYTHONPATH. Mechanical plumbing,
-mirrors league-ml/run_pipeline.py's role in the other repo in this
-workspace.
+mirrors the role of run.py in Projects/Stocks and Projects/League-ML.
 """
 
 import sys

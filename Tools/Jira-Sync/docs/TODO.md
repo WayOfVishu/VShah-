@@ -4,9 +4,9 @@ What was built for you, and what is deliberately left open. Tags match the
 `#JIRA-n` comments in `jira_sync/`.
 
 > **Looking for the whole repo's backlog?** [`BACKLOG.md`](BACKLOG.md) is the
-> flat index of all 61 tasks across Hardware-Check, Stocks and this tool, one
-> row per Jira issue, plus the six `#SETUP-*` account tasks. This file stays
-> the build plan for the tool itself.
+> flat index of all 88 tasks across Hardware-Check, Stocks, League-ML and this
+> tool, one row per Jira issue, plus the six `#SETUP-*` account tasks. This
+> file stays the build plan for the tool itself.
 
 This is a **tool**, not a project — deliberately small, and scoped to teach one
 thing: talking to a REST API by hand. It has no charter and no phase plan
@@ -30,21 +30,26 @@ roadmap, that is a signal to stop, not to write one.
 
 ## What it will actually sync, today
 
-Measured from the two source files as they stand:
+Measured from the three source files as they stand:
 
 | source | tagged items | total items |
 |---|---|---|
 | Hardware-Check | 13 | 21 |
 | Stocks | 15 | 23 |
-| **total** | **28** | **44** |
+| League-ML | 27 | 27 |
+| **total** | **55** | **71** |
 
-Tag prefixes in use: `#ML` (15), `#AI` (4), `#MEM` (4), `#NET` (4), `#SYS` (1).
+Tag prefixes in use: `#ML` (15), `#DL` (8), `#AI` (4), `#MEM` (4), `#NET` (4),
+`#ING` (4), `#FEAT` (4), `#EVAL` (4), `#LML` (4), `#REC` (3), `#SYS` (1).
 
-Two things fall out of that table and both are design decisions, not bugs:
+League-ML was added 2026-09-10. It uses Stocks' `**#TAG · Title.**` format and
+tags every item, so it adds rows without adding a parsing case.
+
+Things fall out of that table, and they are design decisions, not bugs:
 
 - **16 items have no tag** — Hardware-Check's Phase 6/7 entries, Stocks'
   frontend and "non-ML work" items. They cannot be matched idempotently, which
-  is why `#JIRA-10` design question 3 asks whether to skip them. 36% of the
+  is why `#JIRA-10` design question 3 asks whether to skip them. 23% of the
   backlog is a big enough share that "skip silently" is the wrong answer;
   skip-and-report is probably right.
 - **Not every tag ends in a number.** `#ML-LOG` and `#ML-LOG-b` are real tags in
@@ -123,7 +128,7 @@ Not by difficulty — by how much each one de-risks the next.
 | where | API | status |
 |---|---|---|
 | `Hardware-Check/python/ai_analyzer/gemini_client.py` `#AI-2` | Gemini | open |
-| `league-ml/src/ingestion/riot_client.py` `#ING-2` | Riot | referenced, not written |
+| `Projects/League-ML/leagueml/ingestion/riot_client.py` `#ING-2` | Riot | open (scaffolded 2026-09-10) |
 | `Tools/Jira-Sync/jira_sync/client.py` `#JIRA-4` | Jira | open |
 
 Three vendors, one problem. That repetition is what "I know REST" actually

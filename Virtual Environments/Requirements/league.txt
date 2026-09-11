@@ -1,0 +1,31 @@
+# Projects/League-ML
+#
+#   cd "Virtual Environments"
+#   py -m venv league && ./league/Scripts/python.exe -m pip install -r Requirements/league.txt
+
+# --- core ---
+# `py run.py demo` needs exactly these.
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.5    # the logistic-regression floor and the metrics -- no xgboost in v3
+torch>=2.4           # the networks. On Windows, PyPI's wheel is CPU-only, which is
+                     # fine at this scale. For an NVIDIA GPU, install torch first
+                     # from the index URL pytorch.org's "Get Started" selector gives.
+python-dotenv>=1.0   # reads .env; config.py calls load_dotenv() at import
+
+# --- data ---
+requests>=2.32       # Riot API + Data Dragon
+pyarrow>=15.0        # the participant table is Parquet (build-dataset, train --data)
+
+# --- api ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.9
+
+# --- dev ---
+pytest>=8.0
+httpx>=0.27          # required by fastapi.testclient, which tests/test_api.py uses
+
+# --- optional, uncomment as you need them ---
+# matplotlib>=3.9    # training curves (#DL-4) and reliability diagrams (#DL-6)
+# jupyterlab>=4.2    # notebooks/ (#LML-4)

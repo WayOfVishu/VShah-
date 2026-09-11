@@ -82,11 +82,16 @@ cmake --build cpp/build
 **Python side:**
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# venvs live together under "Virtual Environments/", per repo convention
+cd "../../Virtual Environments"
+py -m venv hardware && ./hardware/Scripts/python.exe -m pip install -r Requirements/hardware.txt
+cd ../Projects/Hardware-Check
 cp .env.example .env       # fill in a free Gemini API key + engine path
 ```
+
+(Inside WSL2 the same requirements file works with `python3 -m venv` and
+`bin/` in place of `Scripts/` — it's the C++ side that needs Linux, not the
+Python side.)
 
 ## Running
 
@@ -130,7 +135,7 @@ See `docs/project-charter.md` Section 3 for the full list and reasoning.
 <!-- TODO: fill in once the pipeline runs end-to-end — e.g. real
      Valgrind/ASan output from the memory sandbox, real port-scan/ping
      numbers, how the smart-pointer refactor changed things. No inflated
-     or placeholder claims in the final version — same rule as the
-     league-ml repo's README in this workspace. -->
+     or placeholder claims in the final version — same rule as
+     Projects/League-ML/README.md. -->
 
 _Not yet available — see `docs/TODO.md` for current progress._

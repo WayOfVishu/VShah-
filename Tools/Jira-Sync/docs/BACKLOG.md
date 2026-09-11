@@ -2,9 +2,9 @@
 
 One row per Jira task. Everything below is already written down somewhere in
 the repo; this file is the flat index so you can work through it creating
-issues without hopping between three documents.
+issues without hopping between four documents.
 
-**61 tasks: 6 setup, 21 Hardware-Check, 23 Stocks, 11 jira-sync.**
+**87 tasks: 6 setup, 20 Hardware-Check, 23 Stocks, 27 League-ML, 11 jira-sync.**
 
 Source of truth stays in each project's own `docs/TODO.md` — that is where the
 design questions, hints and reasoning live, and none of it is duplicated here.
@@ -21,13 +21,13 @@ find out whether the tool is worth building.
 
 | Jira concept | use it for | values |
 |---|---|---|
-| **Epic** | phase | `HW Phase 1`, `Stocks Phase 0`, … |
-| **Label** | project | `hardware-check`, `stocks`, `jira-sync`, `setup` |
+| **Epic** | phase | `HW Phase 1`, `Stocks Phase 0`, `LML Phase 2`, … |
+| **Label** | project | `hardware-check`, `stocks`, `league-ml`, `jira-sync`, `setup` |
 | **Label** | tag | the `#TAG`, lowercased — e.g. `mem-t1` |
 
 That tag label is the one that matters: it is what `#JIRA-8` will match on to
 avoid creating duplicates. Adding it by hand now means the tool has something
-to find later, instead of you re-tagging 55 issues after the fact. If you skip
+to find later, instead of you re-tagging 80-odd issues after the fact. If you skip
 it, pick your idempotency strategy first and make sure it works with whatever
 you did instead.
 
@@ -69,13 +69,13 @@ making once, cheaply, here rather than expensively later.
 single backlog and one board, and means cross-project sequencing (C++ before
 Stocks) is visible in one place — which matches how you actually plan to work.
 Separate projects give each repo project its own board and clean per-project
-velocity, at the cost of three places to look. For a solo backlog of 55 items,
-one project is almost certainly right; `config.JIRA_PROJECT_KEY` is a single
+velocity, at the cost of four places to look. For a solo backlog of 80-odd
+items, one project is almost certainly right; `config.JIRA_PROJECT_KEY` is a single
 value today, so multiple projects also means changing the tool.
 
 ---
 
-## Hardware-Check — 21 tasks
+## Hardware-Check — 20 tasks
 
 `Projects/Hardware-Check/docs/TODO.md`. Weeks are from `docs/working-plan.md`.
 
@@ -157,11 +157,10 @@ it — not breaking down further today.
 |---|---|---|
 | *(untagged)* | Keep `schema.py`'s comments in sync when C++ struct fields change | TODO.md:118 |
 | *(untagged)* | Decide whether Gemini responses get cached locally during dev | TODO.md:122 |
-| *(untagged)* | Resolve the four dangling `league-ml` cross-references | TODO.md:125 |
 
-The `league-ml` one has a decision attached: build that project under that name
-and the references become real, or strip them. It connects to the LoL project
-you have planned.
+The dangling `league-ml` cross-references item is **done** (2026-09-10): the
+project now exists at `Projects/League-ML`, and the references point at real
+files. It stays checked off in the source TODO and has no row here.
 
 ---
 
@@ -224,8 +223,8 @@ lookahead bias, not skill — do not read it as a reason to ship ungrounded.
 | *(untagged)* | Train a cross-sectional model and rank a universe | TODO.md:171 | — |
 
 `#ML-11` is only interesting once there is a number to beat — it is also the
-closest thing in this repo to the LoL project's planned deep-learning work, so
-doing it first gives you a baseline for that.
+closest thing in this repo to League-ML's `#DL-7` (a GRU over timeline frames),
+so whichever you do first makes the other easier.
 
 ### Epic: Stocks — non-ML work
 
@@ -241,6 +240,93 @@ Four of these five are explicitly conditional. Create them, but consider a
 `blocked` or `conditional` label so they do not read as committed work — three
 of them should be *cancelled* if the Phase 1 experiments come back negative,
 and that is a good outcome, not a failure.
+
+---
+
+## League-ML — 27 tasks
+
+`Projects/League-ML/docs/TODO.md`. Scaffolded 2026-09-10 from the draft in
+`school stuff/league-ml`, with the models moved from XGBoost to neural
+networks. Every item is tagged; phases are ordered by what unblocks what, so
+`#FEAT-2` sits in Phase 2 ahead of `#FEAT-1`. Last in the stated project
+order — create the issues, but nothing here is committed work yet.
+
+### Epic: LML Phase 0 — somewhere to put the answers
+
+| tag | summary | where |
+|---|---|---|
+| `#EVAL-1` | Build an experiment log — nothing persists results | TODO.md:43 |
+
+### Epic: LML Phase 1 — Ingestion
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#ING-1` | Implement the rate limiter — both windows at once | TODO.md:66 | — |
+| `#ING-2` | Implement `_request()` with retry/backoff on 429/5xx | TODO.md:70 | `#ING-1` |
+| `#ING-3` | Implement ingestion checkpointing | TODO.md:75 | — |
+| `#ING-4` | Implement the ingestion run — PUUID-first discovery | TODO.md:78 | `#ING-1`–`#ING-3` |
+
+`#ING-2` is the third instance of the retry problem, with `#AI-2` and
+`#JIRA-4` — see the through-line note in `Tools/Jira-Sync/docs/TODO.md`.
+
+### Epic: LML Phase 2 — Networks on synthetic data
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#DL-1` | Read, run, then break the reference training loop | TODO.md:92 | — |
+| `#FEAT-2` | Build vocabularies and encodings (ids + multi-hot) | TODO.md:104 | — |
+| `#EVAL-2` | Measure the leak — random row split vs match-grouped | TODO.md:110 | `#FEAT-2` |
+| `#DL-2` | Build the embedding model | TODO.md:117 | `#FEAT-2` |
+| `#DL-3` | Add early stopping and keep the best weights | TODO.md:122 | — |
+| `#DL-4` | Regularisation — dropout, weight decay, read the curves | TODO.md:128 | `#DL-3` |
+| `#EVAL-3` | Does any network beat logistic regression? | TODO.md:133 | `#EVAL-1`, `#DL-2` |
+
+None of Phase 2 needs a Riot key or real data, so it can run while Phase 1's
+long pull does — or before Phase 1 at all.
+
+### Epic: LML Phase 3 — Real features
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#FEAT-1` | Extract items owned at the snapshot minute | TODO.md:148 | `#ING-4` |
+| `#FEAT-4` | Extract per-minute participant frames | TODO.md:154 | `#ING-4` |
+| `#FEAT-3` | Materialise timeline tables and build the participant table | TODO.md:159 | `#FEAT-1`, `#FEAT-4` |
+
+### Epic: LML Phase 4 — Networks on real data
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#EVAL-4` | Learning curves — how many matches each model needs | TODO.md:169 | `#FEAT-3` |
+| `#DL-5` | Build the attention model over the ten champions | TODO.md:176 | `#DL-2` |
+| `#DL-6` | Calibration — reliability diagram, temperature scaling | TODO.md:182 | — |
+
+### Epic: LML Phase 5 — Recommendations (MVP)
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#REC-1` | Implement `recommend_items()` — and handle the gold confounder | TODO.md:192 | a trained network |
+| `#REC-2` | Implement the `/api/recommend` handler | TODO.md:200 | `#REC-1` |
+
+### Epic: LML Phase 6 — later
+
+| tag | summary | where | depends on |
+|---|---|---|---|
+| `#DL-7` | Build a GRU over timeline frames | TODO.md:210 | `#FEAT-4` for real data |
+| `#REC-3` | Build a three-file frontend | TODO.md:216 | `#REC-2` |
+| `#DL-8` | Inspect the learned embeddings | TODO.md:219 | `#DL-2` |
+
+### Epic: LML Housekeeping (throughout)
+
+| tag | summary | where |
+|---|---|---|
+| `#LML-1` | Real numbers in the README | TODO.md:227 |
+| `#LML-2` | Seed-sampling bias paragraph | TODO.md:230 |
+| `#LML-3` | Pick the live patch when ingestion starts | TODO.md:234 |
+| `#LML-4` | An EDA notebook | TODO.md:238 |
+
+`#EVAL`, `#FEAT` and `#DL` are generic enough that another project will want
+them one day — which is `#JIRA-11`'s collision question, now with a concrete
+case.
 
 ---
 
@@ -283,8 +369,8 @@ Start here — no credentials needed, so `#SETUP-1`–`#SETUP-4` are not blocker
 
 ## Cross-project sequencing
 
-Your stated order is C++ refresher → Hardware-Check → Stocks, with the LoL
-project after. Two things cut across it:
+Your stated order is C++ refresher → Hardware-Check → Stocks, with League-ML
+after. Three things cut across it:
 
 **jira-sync Phase 1 needs no credentials and no C++.** `#JIRA-10`, `#JIRA-11`
 and `#JIRA-6` are pure functions with tests already scaffolded — a reasonable
@@ -296,19 +382,25 @@ piece or a deletion. Running it before starting Hardware-Check's Phase 1 costs
 one afternoon and could remove a whole project from this backlog — which is
 worth more than the afternoon.
 
+**League-ML is scaffolded, not started, and should stay that way for now.**
+It exists so the plan is written down while it is fresh, not as a fifth
+project in flight. The one piece of it worth doing early is `#DL-1` alongside
+Stocks' `#ML-11` — both are a first PyTorch training loop, and understanding
+one makes the other quicker.
+
 Everything else follows the phases as written.
 
 ---
 
 ## Counting note
 
-55 of these 61 already existed and are reproduced here; the 6 `#SETUP-*` rows
-are new and exist only in this file. If you want them tracked in the same place
+81 of these 87 exist in a source TODO and are reproduced here; the 6
+`#SETUP-*` rows exist only in this file. If you want them tracked in the same place
 as the rest, they belong in `Tools/Jira-Sync/docs/TODO.md` — but they are
 one-time account setup rather than code, so leaving them here is defensible.
 
-**16 of the 55 existing items are untagged** — 8 in Hardware-Check, 8 in
-Stocks, 0 in jira-sync. They cannot be matched idempotently by `#JIRA-8`, so
+**15 of the 81 existing items are untagged** — 7 in Hardware-Check, 8 in
+Stocks, 0 in League-ML, 0 in jira-sync. They cannot be matched idempotently by `#JIRA-8`, so
 either give them tags in the source TODO before syncing, or accept that those
 issues get created once by hand and are never reconciled. Tagging them is maybe
 twenty minutes and makes the tool's job simpler — worth doing before `#JIRA-9`

@@ -3,8 +3,8 @@ Central configuration: paths and settings loaded from the environment.
 
 Plumbing, not a learning exercise — written out in full so every other
 module has one obvious place to pull settings from (mirrors the same
-decision in league-ml/src/config.py, if you want a second example of the
-pattern).
+decision in Projects/League-ML/leagueml/config.py, if you want a second
+example of the pattern).
 """
 
 import os
