@@ -1,0 +1,30 @@
+# Scope the knowledge graph to work this repo actually owns.
+#
+# graphify walks the filesystem, and .gitignore does not cover git submodules
+# (they are gitlinks, not ignored paths). Without these rules the graph fills
+# up with vendored third-party code — Light Panda alone is a full browser
+# engine — which buries the actual projects and makes every query noisier.
+
+# --- vendored submodules --------------------------------------------------
+# Upstream clones. Useful to have on disk, useless as graph nodes: we do not
+# own this code and never answer questions about its internals.
+External Repos/
+
+# --- environments and installed packages ----------------------------------
+Virtual Environments/
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/site-packages/
+
+# --- reference material ---------------------------------------------------
+# Textbooks and scanned PDFs. Large, and not code.
+References/
+
+# --- build output and local state -----------------------------------------
+**/build/
+**/dist/
+**/.git/
+graphify-out/
+**/*.db

@@ -57,3 +57,20 @@ node_modules/
 # --- editors / os --------------------------------------------------------
 .DS_Store
 Thumbs.db
+
+# --- graphify knowledge graph --------------------------------------------
+# Build output, not source. graph.json is ~2.7 MB and graph.html ~2.2 MB, and
+# both are rewritten wholesale whenever any indexed file changes — committing
+# them would put a multi-megabyte binary-ish diff in front of every ordinary
+# code commit. The graph is fully reproducible from the tree it describes:
+#   graphify extract . --code-only     (local AST, no API key, no token cost)
+# .graphifyignore IS committed: it defines the scope, and is the part worth
+# sharing between machines.
+graphify-out/*
+#
+# ...except the two things in there that are NOT reproducible from source.
+# memory/ is saved Q&A results and reflections/ is the digest built from them:
+# knowledge earned by working in this repo, not output derived from it. Losing
+# them on a fresh clone loses the accumulated context, which is the whole point.
+!graphify-out/memory/
+!graphify-out/reflections/

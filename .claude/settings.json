@@ -20,5 +20,23 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "ponytail@ponytail": true,
+    "caveman@caveman": true
+  },
+  "extraKnownMarketplaces": {
+    "ponytail": {
+      "source": {
+        "source": "directory",
+        "path": "./External Repos/Ponytail"
+      }
+    },
+    "caveman": {
+      "source": {
+        "source": "directory",
+        "path": "./External Repos/Caveman"
+      }
+    }
   }
 }

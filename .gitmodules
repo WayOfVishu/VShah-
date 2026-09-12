@@ -10,3 +10,12 @@
 [submodule "External Repos/Graphify"]
 	path = External Repos/Graphify
 	url = https://github.com/Graphify-Labs/graphify.git
+[submodule "External Repos/Ponytail"]
+	path = External Repos/Ponytail
+	url = https://github.com/DietrichGebert/ponytail.git
+[submodule "External Repos/Agent Skills"]
+	path = External Repos/Agent Skills
+	url = https://github.com/addyosmani/agent-skills.git
+[submodule "External Repos/Caveman"]
+	path = External Repos/Caveman
+	url = https://github.com/JuliusBrussee/caveman.git
