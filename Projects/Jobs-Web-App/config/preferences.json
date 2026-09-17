@@ -115,7 +115,7 @@
     "resumeWeight": 0.25
   },
   "feed": {
-    "maxAgeDays": 14,
+    "maxAgeDays": null,
     "archiveAfterDays": 60,
     "experienceCapYears": 2
   }
