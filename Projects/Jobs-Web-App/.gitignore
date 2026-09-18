@@ -4,8 +4,11 @@ node_modules/
 *.log
 .DS_Store
 
-# SQLite WAL sidecars — transient, recreated whenever the server runs.
-# jobs.db itself is tracked; these are not.
+# The application database and its WAL sidecars. jobs.db holds every company
+# applied to, every title, date and outcome - personal job-search data that
+# does not belong in a public repo. The file stays on disk; this only stops it
+# being committed. Back it up outside version control.
+jobs.db
 jobs.db-wal
 jobs.db-shm
 
@@ -19,7 +22,7 @@ logs/
 resume/
 
 # Database backups. Snapshots of a mutable binary do not belong in version
-# control: they cannot be diffed or merged, they are redundant with git's own
-# history of jobs.db, and at ~26MB each they were the largest thing in the
+# control: they cannot be diffed or merged, they carry the same personal data
+# as jobs.db itself, and at ~26MB each they were the largest thing in the
 # repo. The files stay on disk — this only stops them being committed.
 jobs.db.bak-*
