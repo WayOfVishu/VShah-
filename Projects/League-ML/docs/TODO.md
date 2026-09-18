@@ -1,6 +1,6 @@
 # TODO
 
-What was built for you, and what is deliberately left open. Tags match the
+What is built, and what is deliberately left open. Tags match the
 `#ING-n` / `#FEAT-n` / `#DL-n` / `#EVAL-n` / `#REC-n` comments in `leagueml/`.
 Each module's docstring holds the actual design questions — work from those,
 not from the one-liners here.
@@ -30,11 +30,11 @@ Check items off as you go (`- [x]`).
 | match-grouped splits, metrics, the canary | **done** — `py run.py demo` |
 | logistic-regression floor | **done** — evaluation infrastructure now, not the lesson |
 | CLI + FastAPI skeleton | **done** — `/api/recommend` answers 501 until `#REC-2` |
-| experiment log | **yours** — nothing persists results today, `#EVAL-1` |
-| ingestion | **yours** — `#ING-1..4` |
-| features | **yours** — `#FEAT-1..4` |
-| **the networks** | **yours** — `#DL-1..8` |
-| recommender, endpoint, frontend | **yours** — `#REC-1..3` |
+| experiment log | **open** — nothing persists results today, `#EVAL-1` |
+| ingestion | **open** — `#ING-1..4` |
+| features | **open** — `#FEAT-1..4` |
+| **the networks** | **open** — `#DL-1..8` |
+| recommender, endpoint, frontend | **open** — `#REC-1..3` |
 
 ---
 
