@@ -1,6 +1,6 @@
 # TODO
 
-What was built for you, and what is deliberately left open.
+What is built, and what is deliberately left open.
 
 Tags match the `#ML-n` comments in `stocks/pipeline.py`. Work top-down within
 each phase; the ordering is by information gained per hour, not by difficulty.
@@ -19,8 +19,8 @@ each phase; the ordering is by information gained per hour, not by difficulty.
 | sklearn pipeline scaffold | **done** — runs, but unmodelled |
 | purged walk-forward evaluation | **done** |
 | FastAPI backend | **done** — `/predict` serves a baseline until a model exists |
-| **the model** | **yours** |
-| **experiment log** | **yours** — nothing persists results today, see #ML-LOG |
+| **the model** | **open** |
+| **experiment log** | **open** — nothing persists results today, see #ML-LOG |
 | frontend | not started — see charter §8 |
 
 ---
